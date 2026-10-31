@@ -20,7 +20,8 @@ export async function commitDecision({ issueId, authorAccountId, payload, capa }
     ...(payload.type === 'NOT_RECURRENCE' ? { reasonCategory: payload.reasonCategory } : {}),
     evidenceLinks: payload.evidenceLinks, authorAccountId, createdAt: now.toISOString(),
   };
-  const pairState = { version: previous.version + 1, state, latestDecisionId: id, updatedAt: decision.createdAt };
+  const pairState = { version: previous.version + 1, state, latestDecisionId: id, updatedAt: decision.createdAt,
+    capaId: payload.capaId, issueId };
   // All records have a version. notExists(version) therefore admits only a new pair.
   const conditions = new Filter().and('version', payload.expectedVersion === 0
     ? FilterConditions.notExists() : FilterConditions.equalTo(payload.expectedVersion));

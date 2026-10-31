@@ -1,4 +1,27 @@
 modules:
+  jira:projectPage:
+    - key: qualityloop-samples
+      resource: sample-page
+      resolver:
+        function: sample-resolver
+      render: native
+      title: QualityLoop
+  jira:adminPage:
+    - key: qualityloop-data
+      resource: data-page
+      resolver:
+        function: data-resolver
+      render: native
+      title: QualityLoop data
+      displayConditions:
+        isAdmin: true
+  trigger:
+    - key: qualityloop-issue-deleted
+      function: issue-deleted
+      events:
+        - avi:jira:deleted:issue
+      filter:
+        ignoreSelf: true
   jira:issuePanel:
     - key: qualityloop-hello-world-issue-panel
       resource: main
@@ -51,7 +74,17 @@ modules:
   function:
     - key: resolver
       handler: index.handler
+    - key: sample-resolver
+      handler: index.sampleHandler
+    - key: data-resolver
+      handler: index.adminHandler
+    - key: issue-deleted
+      handler: index.onIssueDeleted
 resources:
+  - key: sample-page
+    path: src/frontend/projectPage.jsx
+  - key: data-page
+    path: src/frontend/adminPage.jsx
   - key: main
     path: src/frontend/index.jsx
   - key: evidence-context
@@ -69,6 +102,10 @@ app:
     entities:
       - name: pair-state
         attributes:
+          capaId:
+            type: string
+          issueId:
+            type: string
           version:
             type: integer
           state:
@@ -77,6 +114,17 @@ app:
             type: string
           updatedAt:
             type: string
+        indexes:
+          - name: by-issue
+            partition:
+              - issueId
+            range:
+              - updatedAt
+          - name: by-capa
+            partition:
+              - capaId
+            range:
+              - updatedAt
       - name: decision
         attributes:
           type:

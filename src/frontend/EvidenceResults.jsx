@@ -20,7 +20,8 @@ function EvidenceCard({ match, classification, data, readOnly, ready, onChanged,
         : classification === 'relatedRevision'
           ? `Related: same part base, different revision (${match.partRevision ?? 'not recorded'})`
           : `Related: part ${match.partOriginal}; failure mode ${mode}`}</Text>
-      <Text>{`Closed: ${match.closedDate}; Jira status: ${match.status || 'not recorded'}`}</Text>
+      <Text>{`QualityLoop closure date: ${match.closedDate}`}</Text>
+      <Text>{`(Jira status: ${match.status || 'not recorded'})`}</Text>
       {match.supportingFacts.length ? match.supportingFacts.map((fact) => <Text key={fact}>{fact}</Text>) : <Text>No additional supporting facts recorded.</Text>}
       <Text>{`Root cause: ${match.rootCause.trim() || 'not recorded'}`}</Text>
       <Text>{`Actions taken: ${match.actionsTaken.trim() || 'not recorded'}`}</Text>
