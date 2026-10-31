@@ -1,9 +1,11 @@
 import Resolver from '@forge/resolver';
 import api, { route } from '@forge/api';
-import { E1_PROBE } from '../config/devFlags';
+import { E1_PROBE, SEC_TEST } from '../config/devFlags';
 import { buildCapture, CAPTURE_FIELDS, validateCapture, validDate } from '../lib/capture';
 import { matchCaptures } from '../lib/match';
 import { buildMatchJql } from '../lib/matchJql';
+import { probeIssueAccess, probeJqlEscaping, restoringSave } from './securitySelfTest';
+import { securityCapturePayload } from '../lib/securitySelfTest';
 
 const resolver = new Resolver();
 
@@ -22,50 +24,65 @@ function allowFields(payload, fields) {
   }
 }
 
-// No issue identifiers are accepted in payloads, even when the context is present.
+// Production requests reject identifiers. SEC_TEST reads deliberately discard an
+// injected ID so the developer can compare the authorised source IDs live.
 function define(name, fields, fn, probe = false) {
   resolver.define(name, async (req) => {
     try {
-      if (probe && !E1_PROBE) return { error: 'E1 probe is disabled.' };
-      allowFields(req.payload ?? {}, fields);
-      return await fn(issueFromContext(req), req.payload ?? {});
+      if (probe === 'security' && !SEC_TEST) return { error: 'Security self-test is disabled.' };
+      if (probe === true && !E1_PROBE) return { error: 'E1 probe is disabled.' };
+      const payload = req.payload ?? {};
+      if (Object.hasOwn(payload, 'securityTest') && !SEC_TEST) return { error: 'Security self-test is disabled.' };
+      const testing = SEC_TEST && payload.securityTest === true && ['loadCapture', 'findMatches', 'saveCapture'].includes(name);
+      allowFields(payload, testing ? [...fields, 'securityTest', ...(['loadCapture', 'findMatches'].includes(name) ? ['issueId'] : [])] : fields);
+      const issueId = issueFromContext(req);
+      const trace = testing ? { issueId, http: [] } : undefined;
+      if (testing && name === 'saveCapture') {
+        return await restoringSave(issueId, (previous) => fn(issueId, securityCapturePayload(previous), trace), trace);
+      }
+      const result = await fn(issueId, payload, trace);
+      // Preserve null on denied/missing reads; never attach a source ID to a denial.
+      return trace && result && !result.error ? { ...result, securityTest: trace } : result;
     } catch (error) {
       console.error(`QualityLoop ${name}:`, error.message);
+      if (SEC_TEST && (probe === 'security' || req.payload?.securityTest === true)) return { error: error.message };
       return { error: 'QualityLoop could not complete the request. Reopen the panel and try again.' };
     }
   });
 }
 
-async function readProperty(issueId, propertyKey) {
+async function readProperty(issueId, propertyKey, trace) {
   const response = await api.asUser().requestJira(
     route`/rest/api/3/issue/${issueId}/properties/${propertyKey}`,
     { headers: { Accept: 'application/json' } },
   );
+  trace?.http.push({ operation: 'property GET', status: response.status });
   if (response.status === 403 || response.status === 404) return null;
   if (!response.ok) throw new Error(`Property GET returned HTTP ${response.status}`);
   return (await response.json()).value;
 }
 
-async function writeProperty(issueId, propertyKey, value) {
+async function writeProperty(issueId, propertyKey, value, trace) {
   const response = await api.asUser().requestJira(
     route`/rest/api/3/issue/${issueId}/properties/${propertyKey}`,
     { method: 'PUT', headers, body: JSON.stringify(value) },
   );
+  trace?.http.push({ operation: 'save PUT', status: response.status });
   if (response.status === 403 || response.status === 404) return null;
   if (!response.ok) throw new Error(`Property PUT returned HTTP ${response.status}`);
   return true;
 }
 
-define('loadCapture', [], async (issueId) => {
-  const record = await readProperty(issueId, 'qualityloop');
+define('loadCapture', [], async (issueId, payload, trace) => {
+  const record = await readProperty(issueId, 'qualityloop', trace);
   if (record == null) return null;
   if (![1, 2].includes(record.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
   return { record };
 });
 
-define('findMatches', [], async (issueId) => {
+define('findMatches', [], async (issueId, payload, trace) => {
   const started = Date.now();
-  const current = await readProperty(issueId, 'qualityloop');
+  const current = await readProperty(issueId, 'qualityloop', trace);
   if (current == null) return null;
   if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
   if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
@@ -79,6 +96,7 @@ define('findMatches', [], async (issueId) => {
       body: JSON.stringify({ jql, maxResults: 50, fields: ['summary', 'status'],
         properties: ['qualityloop'], ...(nextPageToken ? { nextPageToken } : {}) }),
     });
+    trace?.http.push({ operation: 'match POST', status: response.status });
     if (response.status === 403 || response.status === 404) return null;
     if (!response.ok) throw new Error(`Match search returned HTTP ${response.status}`);
     const data = await response.json();
@@ -105,14 +123,14 @@ define('findMatches', [], async (issueId) => {
   return { applicable: true, ...matchCaptures({ ...current, id: issueId }, candidates), elapsedMs: Date.now() - started };
 });
 
-define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {
+define('saveCapture', CAPTURE_FIELDS, async (issueId, payload, trace) => {
   const fieldErrors = validateCapture(payload);
   if (Object.keys(fieldErrors).length) return { fieldErrors };
   const record = buildCapture(payload);
   if (Buffer.byteLength(JSON.stringify(record), 'utf8') > 32768) {
     return { error: 'The record exceeds the Jira issue property size limit.' };
   }
-  if (!await writeProperty(issueId, 'qualityloop', record)) return null;
+  if (!await writeProperty(issueId, 'qualityloop', record, trace)) return null;
   return { record };
 });
 
@@ -153,5 +171,8 @@ define('probeSearch', ['token'], async (issueId, payload) => {
   const data = await response.json();
   return { hit: (data.issues ?? []).some((issue) => String(issue.id) === issueId) };
 }, true);
+
+define('probeIssueAccess', ['issueIdOrKey'], (issueId, payload) => probeIssueAccess(payload.issueIdOrKey), 'security');
+define('probeJqlEscaping', [], () => probeJqlEscaping(), 'security');
 
 export const handler = resolver.getDefinitions();

@@ -1,4 +1,11 @@
-# QualityLoop — T2 matching and evidence
+# QualityLoop — T3 security self-test
+
+The developer-only live permission checks, default-off `SEC_TEST` flag, owner
+commands and exact click/check sequence are in [T3.md](T3.md). T3 adds no scopes
+or manifest changes and leaves production behavior unchanged. No production
+permission bug was found. The Forge CLI and live site remain owner checks.
+
+## T2 matching and evidence
 
 Current behavior, owner commands, verification limits, and the complete T2 test
 sequence are in [T2.md](T2.md). T2 adds deterministic matching, evidence cards,
