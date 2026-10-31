@@ -1,0 +1,21 @@
+modules:
+  jira:issuePanel:
+    - key: qualityloop-hello-world-issue-panel
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: qualityloop
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/3b6c6550-90d9-4bc5-a3a6-9388240baf81
