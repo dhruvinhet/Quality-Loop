@@ -6,6 +6,7 @@ import { matchCaptures } from '../lib/match';
 import { buildMatchJql } from '../lib/matchJql';
 import { probeIssueAccess, probeJqlEscaping, restoringSave } from './securitySelfTest';
 import { securityCapturePayload } from '../lib/securitySelfTest';
+import { registerDecisionResolvers } from './decisions';
 
 const resolver = new Resolver();
 
@@ -24,7 +25,7 @@ function allowFields(payload, fields) {
   }
 }
 
-// Production requests reject identifiers. SEC_TEST reads deliberately discard an
+// Capture/match requests reject issue identifiers. SEC_TEST reads discard an
 // injected ID so the developer can compare the authorised source IDs live.
 function define(name, fields, fn, probe = false) {
   resolver.define(name, async (req) => {
@@ -40,7 +41,7 @@ function define(name, fields, fn, probe = false) {
       if (testing && name === 'saveCapture') {
         return await restoringSave(issueId, (previous) => fn(issueId, securityCapturePayload(previous), trace), trace);
       }
-      const result = await fn(issueId, payload, trace);
+      const result = await fn(issueId, payload, trace, req.context);
       // Preserve null on denied/missing reads; never attach a source ID to a denial.
       return trace && result && !result.error ? { ...result, securityTest: trace } : result;
     } catch (error) {
@@ -80,7 +81,7 @@ define('loadCapture', [], async (issueId, payload, trace) => {
   return { record };
 });
 
-define('findMatches', [], async (issueId, payload, trace) => {
+async function findMatches(issueId, payload, trace) {
   const started = Date.now();
   const current = await readProperty(issueId, 'qualityloop', trace);
   if (current == null) return null;
@@ -121,7 +122,8 @@ define('findMatches', [], async (issueId, payload, trace) => {
     nextPageToken = data.isLast === true ? undefined : data.nextPageToken;
   } while (nextPageToken);
   return { applicable: true, ...matchCaptures({ ...current, id: issueId }, candidates), elapsedMs: Date.now() - started };
-});
+}
+define('findMatches', [], findMatches);
 
 define('saveCapture', CAPTURE_FIELDS, async (issueId, payload, trace) => {
   const fieldErrors = validateCapture(payload);
@@ -174,5 +176,7 @@ define('probeSearch', ['token'], async (issueId, payload) => {
 
 define('probeIssueAccess', ['issueIdOrKey'], (issueId, payload) => probeIssueAccess(payload.issueIdOrKey), 'security');
 define('probeJqlEscaping', [], () => probeJqlEscaping(), 'security');
+
+registerDecisionResolvers({ define, findMatches });
 
 export const handler = resolver.getDefinitions();

@@ -62,7 +62,54 @@ permissions:
   scopes:
     - read:jira-work
     - write:jira-work
+    - read:jira-user
+    - storage:app
 app:
+  storage:
+    entities:
+      - name: pair-state
+        attributes:
+          version:
+            type: integer
+          state:
+            type: string
+          latestDecisionId:
+            type: string
+          updatedAt:
+            type: string
+      - name: decision
+        attributes:
+          type:
+            type: string
+          capaId:
+            type: string
+          issueId:
+            type: string
+          reason:
+            type: string
+          reasonCategory:
+            type: string
+          evidenceLinks:
+            type: any
+          authorAccountId:
+            type: string
+          createdAt:
+            type: string
+          taskKey:
+            type: string
+          taskClaimId:
+            type: string
+        indexes:
+          - name: by-issue
+            partition:
+              - issueId
+            range:
+              - createdAt
+          - name: by-capa
+            partition:
+              - capaId
+            range:
+              - createdAt
   runtime:
     name: nodejs24.x
     memoryMB: 256

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import ForgeReconciler, { Button, SectionMessage, Spinner, Stack, Text } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import CaptureForm from './CaptureForm';
+import ReadOnlyCapture from './ReadOnlyCapture';
 import ProbePanel from './ProbePanel';
 import MatchView from './MatchView';
 import MatchCheck from './MatchCheck';
@@ -14,8 +15,9 @@ const App = () => {
   useEffect(() => {
     let active = true;
     setState({ loading: true });
-    invoke('loadCapture').then((result) => {
-      if (active) setState({ loading: false, record: result?.record ?? null, error: result?.error });
+    Promise.all([invoke('loadCapture'), invoke('getPanelAccess')]).then(([result, access]) => {
+      if (active) setState({ loading: false, record: result?.record ?? null, canEdit: access?.canEdit === true,
+        error: result?.error || access?.error || (!access ? 'Issue access could not be checked. Try loading again.' : null) });
     }).catch(() => {
       if (active) setState({ loading: false, error: 'Quality details could not be loaded. Try again.' });
     });
@@ -28,10 +30,11 @@ const App = () => {
   </Stack>;
   return (
     <Stack space="space.300">
-      <CaptureForm record={state.record} onSaved={() => setMatchRefresh((value) => value + 1)} />
-      <MatchView refresh={matchRefresh} />
-      {E1_PROBE && <ProbePanel />}
-      {E2_CHECK && <MatchCheck />}
+      {state.canEdit ? <CaptureForm record={state.record} onSaved={() => setMatchRefresh((value) => value + 1)} />
+        : <ReadOnlyCapture record={state.record} />}
+      <MatchView refresh={matchRefresh} readOnly={!state.canEdit} />
+      {state.canEdit && E1_PROBE && <ProbePanel />}
+      {state.canEdit && E2_CHECK && <MatchCheck />}
     </Stack>
   );
 };

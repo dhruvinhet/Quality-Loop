@@ -1,4 +1,21 @@
-# QualityLoop — T3 security self-test
+# QualityLoop — T4 decisions and read-only access
+
+T4 adds a read-only panel for non-editors and append-only engineer decisions,
+with atomic pair-level version checks in Forge Custom Entity Store. See
+[T4.md](T4.md) for changed files, verified APIs, owner commands, and exact checks.
+The issue-context section shows the same decision state and history read-only.
+
+**Personal data:** decisions store the user's Atlassian account ID, written
+reason, evidence URLs, issue IDs, timestamps, and optional follow-up task key in
+Forge hosted storage. Display names are looked up as the viewing user and are
+not persisted. Reasons and evidence links may also contain personal data.
+Decision explanations are append-only: a correction records another decision.
+
+New scopes: `storage:app` and `read:jira-user` (for author display names).
+The owner must deploy and then upgrade the installation. `E8_CHECK` defaults
+to false. No deletion trigger, admin page, or sample scenario is included.
+
+## T3 security self-test (earlier work)
 
 The developer-only live permission checks, default-off `SEC_TEST` flag, owner
 commands and exact click/check sequence are in [T3.md](T3.md). T3 adds no scopes
