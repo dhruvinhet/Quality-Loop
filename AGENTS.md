@@ -28,7 +28,15 @@ When a quality engineer saves defect details on a nonconformance (NC), QualityLo
 ## Hard rules
 
 - **Platform.** Forge, with UI Kit (`@forge/react`, `render: native`), `@forge/resolver`, `@forge/api`, `@forge/bridge`, and `@forge/kvs` when storage is needed. Node.js 22.x or 24.x. JavaScript unless the scaffold is TypeScript.
-- **Use the Forge MCP tools** (`forge-development-guide`, `forge-modules-list`, `forge-app-manifest-guide`, `forge-ui-kit-developer-guide`, `search-forge-docs`) before writing manifest entries or using an API you have not verified in this repo. Do not invent module properties, scopes or API shapes. If unsure, say so in your summary instead of guessing.
+- **Use the `forge` MCP server tools** before writing manifest entries or using an API you have not verified in this repo:
+  - `forge-development-guide`, `list-forge-modules`, `forge-app-manifest-guide`, `forge-backend-developer-guide`
+  - `forge-ui-kit-developer-guide`, `list-ui-kit-components`, `get-ui-kit-component-reference`
+  - `fetch-api-operation` and `get-api-required-scopes` for every Jira REST call and its scopes
+  - `search-forge-docs` for anything else
+  - `diagnose-forge-error` for lint, deploy or runtime errors
+
+  Do not invent module properties, scopes or API shapes. If unsure, say so in your summary instead of guessing.
+- **Use no other MCP tools.** Do not use GitHub, Gmail, Google Drive, Calendar, Contacts, sites, plugin-management or any other connector. Do not send email, create issues or pull requests, or deploy anything. Git is used only locally, and only if the owner asks.
 - **Permissions.**
   - All user-facing reads and writes use `asUser()`.
   - Never use `asApp()` to read data that will be shown to a user.
