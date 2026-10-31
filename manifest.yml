@@ -7,6 +7,14 @@ modules:
       render: native
       title: qualityloop
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  jira:issueContext:
+    - key: qualityloop-evidence-context
+      resource: evidence-context
+      resolver:
+        function: resolver
+      render: native
+      title: QualityLoop evidence
+      label: QualityLoop evidence
   jira:entityPropertySet:
     - key: qualityloop-properties
       properties:
@@ -46,6 +54,8 @@ modules:
 resources:
   - key: main
     path: src/frontend/index.jsx
+  - key: evidence-context
+    path: src/frontend/issueContext.jsx
   - key: probe-clipboard
     path: static/probe-clipboard/dist
 permissions:

@@ -3,7 +3,7 @@ import { normalise } from './normalise';
 
 export const CAPTURE_FIELDS = [
   'recordType', 'partNumber', 'failureMode', 'supplier', 'line',
-  'detectedDate', 'closedDate', 'effectivenessEvidenceUrl',
+  'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'rootCause', 'actionsTaken',
 ];
 
 export function validDate(value) {
@@ -25,7 +25,7 @@ export function validateCapture(input = {}) {
   for (const field of ['detectedDate', ...(input.recordType === 'CAPA' ? ['closedDate'] : [])]) {
     if (input[field] != null && input[field] !== '' && !validDate(input[field])) errors[field] = 'Enter a valid date (YYYY-MM-DD).';
   }
-  const textFields = ['partNumber', 'supplier', 'line', ...(input.recordType === 'CAPA' ? ['effectivenessEvidenceUrl'] : [])];
+  const textFields = ['partNumber', 'supplier', 'line', ...(input.recordType === 'CAPA' ? ['effectivenessEvidenceUrl', 'rootCause', 'actionsTaken'] : [])];
   for (const field of textFields) {
     if (input[field] != null && typeof input[field] !== 'string') errors[field] = 'Enter text.';
     else if (input[field]?.length > 2000) errors[field] = 'Use 2,000 characters or fewer.';
@@ -43,7 +43,7 @@ export function validateCapture(input = {}) {
 
 export function buildCapture(input, now = new Date().toISOString()) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     recordType: input.recordType,
     ...normalise(input.partNumber),
     failureMode: input.failureMode,
@@ -52,6 +52,8 @@ export function buildCapture(input, now = new Date().toISOString()) {
     detectedDate: input.detectedDate || null,
     closedDate: input.recordType === 'CAPA' ? input.closedDate || null : null,
     effectivenessEvidenceUrl: input.recordType === 'CAPA' ? input.effectivenessEvidenceUrl || '' : '',
+    rootCause: input.recordType === 'CAPA' ? input.rootCause || '' : '',
+    actionsTaken: input.recordType === 'CAPA' ? input.actionsTaken || '' : '',
     updatedAt: now,
   };
 }

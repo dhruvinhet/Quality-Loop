@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   ErrorMessage, Form, FormFooter, FormSection, Label, LoadingButton,
-  Select, Textfield, DatePicker, SectionMessage, Text, useForm,
+  Select, Textfield, TextArea, DatePicker, SectionMessage, Text, useForm,
 } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import { FAILURE_MODES } from '../config/failureModes';
@@ -14,7 +14,7 @@ const asPayload = (data) => ({
   failureMode: data.failureMode?.value ?? '',
 });
 
-export default function CaptureForm({ record }) {
+export default function CaptureForm({ record, onSaved }) {
   const [recordType, setRecordType] = useState(record?.recordType ?? '');
   const [message, setMessage] = useState(null);
   const [serverErrors, setServerErrors] = useState({});
@@ -28,6 +28,8 @@ export default function CaptureForm({ record }) {
       detectedDate: record?.detectedDate ?? '',
       closedDate: record?.closedDate ?? '',
       effectivenessEvidenceUrl: record?.effectivenessEvidenceUrl ?? '',
+      rootCause: record?.rootCause ?? '',
+      actionsTaken: record?.actionsTaken ?? '',
     },
   });
   const field = (name) => register(name, {
@@ -51,6 +53,7 @@ export default function CaptureForm({ record }) {
         setMessage({ appearance: 'error', text: result?.error || 'Save was not completed. Check your issue access and try again.' });
       } else {
         setMessage({ appearance: 'success', text: 'Quality details saved.' });
+        onSaved?.(result.record);
       }
     } catch {
       setMessage({ appearance: 'error', text: 'Save could not be completed. Try again.' });
@@ -91,6 +94,12 @@ export default function CaptureForm({ record }) {
         {error('detectedDate')}
 
         {recordType === 'CAPA' && <>
+          <Label labelFor={getFieldId('rootCause')}>Root cause</Label>
+          <TextArea {...field('rootCause')} defaultValue={getValues('rootCause')} isDisabled={isSubmitting} maxLength={2000} />
+          {error('rootCause')}
+          <Label labelFor={getFieldId('actionsTaken')}>Actions taken</Label>
+          <TextArea {...field('actionsTaken')} defaultValue={getValues('actionsTaken')} isDisabled={isSubmitting} maxLength={2000} />
+          {error('actionsTaken')}
           <Label labelFor={getFieldId('closedDate')}>Closed date</Label>
           <DatePicker {...field('closedDate')} defaultValue={getValues('closedDate')} isDisabled={isSubmitting} />
           {error('closedDate')}

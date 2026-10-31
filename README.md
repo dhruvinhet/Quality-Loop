@@ -1,4 +1,14 @@
-# QualityLoop — T1 capture and E1 indexing probe
+# QualityLoop — T2 matching and evidence
+
+Current behavior, owner commands, verification limits, and the complete T2 test
+sequence are in [T2.md](T2.md). T2 adds deterministic matching, evidence cards,
+optional CAPA narratives, and a read-only issue-context view. E1 and E2 default
+to disabled. No new scopes, decisions, storage, or triggers are added.
+
+The remaining content below is the historical T1/E1 implementation record;
+its scope-change commands and no-matching description refer to T1 only.
+
+## Historical T1/E1 record
 
 The existing native UI Kit Jira issue panel captures quality details and prefills
 them from the current issue's `qualityloop` property. T1 includes no matching,

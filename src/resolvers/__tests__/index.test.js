@@ -24,6 +24,7 @@ const response = (status, value) => ({ status, ok: status >= 200 && status < 300
 
 beforeEach(() => {
   jest.clearAllMocks();
+  requestJira.mockReset();
   api.asUser.mockReturnValue({ requestJira });
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -38,10 +39,10 @@ test('saves only to the context issue and produces the complete property via asU
   expect(options.method).toBe('PUT');
   const value = JSON.parse(options.body);
   expect(value).toEqual(result.record);
-  expect(value).toMatchObject({ partOriginal: payload.partNumber, partNorm: 'P-4471 -A', schemaVersion: 1 });
+  expect(value).toMatchObject({ partOriginal: payload.partNumber, partNorm: 'P-4471 -A', schemaVersion: 2 });
   expect(Object.keys(value).sort()).toEqual([
     'schemaVersion', 'recordType', 'partOriginal', 'partNorm', 'partBase', 'partRevision',
-    'failureMode', 'supplier', 'line', 'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'updatedAt',
+    'failureMode', 'supplier', 'line', 'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'rootCause', 'actionsTaken', 'updatedAt',
   ].sort());
   expect(api.asUser).toHaveBeenCalledTimes(1);
 });
@@ -112,4 +113,87 @@ test('server gates every probe when the flag is false', async () => {
     expect(await disabled[name]({ context, payload: { token } })).toEqual({ error: 'E1 probe is disabled.' });
   }
   expect(requestJira).not.toHaveBeenCalled();
+});
+
+const matchingNc = { schemaVersion: 1, recordType: 'NC', partOriginal: 'P-4471-A',
+  failureMode: 'FM-01', supplier: 'Supplier 1', detectedDate: '2026-10-31' };
+const matchingCapa = { ...matchingNc, recordType: 'CAPA', closedDate: '2026-10-01' };
+const freshIssue = (id = '20002', capture = matchingCapa) => ({ id, key: `QL-${id}`,
+  fields: { summary: 'Fresh summary', status: { name: 'Done' } }, properties: { qualityloop: capture } });
+
+test.each([1, 2])('loads schema version %s', async (schemaVersion) => {
+  const record = { ...matchingNc, schemaVersion };
+  requestJira.mockResolvedValue(response(200, { value: record }));
+  expect(await handler.loadCapture({ context })).toEqual({ record });
+});
+
+test('findMatches reads the context property, requests enhanced-search properties and re-fetches fresh evidence', async () => {
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc }))
+    .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', fields: { summary: 'Stale summary' },
+      properties: { qualityloop: { ...matchingCapa, rootCause: 'Stale narrative' } } }], isLast: true }))
+    .mockResolvedValueOnce(response(200, freshIssue()));
+  const result = await handler.findMatches({ context });
+  expect(result).toMatchObject({ applicable: true, elapsedMs: expect.any(Number),
+    strong: [{ key: 'QL-20002', summary: 'Fresh summary', status: 'Done', rootCause: '', daysSinceClosure: 30 }] });
+  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001/properties/qualityloop');
+  const [path, options] = requestJira.mock.calls[1];
+  expect(path).toBe('/rest/api/3/search/jql');
+  expect(options.method).toBe('POST');
+  expect(JSON.parse(options.body)).toMatchObject({ maxResults: 50, fields: ['summary', 'status'], properties: ['qualityloop'] });
+  expect(requestJira.mock.calls[2][0]).toBe('/rest/api/3/issue/20002?fields=summary,status&properties=qualityloop');
+  expect(api.asUser).toHaveBeenCalledTimes(3);
+});
+
+test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or stale data', async (status) => {
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc }))
+    .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
+    .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
+  const result = await handler.findMatches({ context });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], elapsedMs: expect.any(Number) });
+  expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
+});
+
+test('re-fetched property changes are reclassified rather than trusting search snapshots', async () => {
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc }))
+    .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', properties: { qualityloop: matchingCapa } }] }))
+    .mockResolvedValueOnce(response(200, freshIssue('20002', { ...matchingCapa, closedDate: '2026-11-01' })));
+  expect((await handler.findMatches({ context })).strong).toEqual([]);
+});
+
+test('follows nextPageToken and omits the current issue and duplicate results', async () => {
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc }))
+    .mockResolvedValueOnce(response(200, { issues: [{ id: '10001' }, { id: '20002' }], nextPageToken: 'next' }))
+    .mockResolvedValueOnce(response(200, freshIssue()))
+    .mockResolvedValueOnce(response(200, { issues: [{ id: '20002' }, { id: '20003' }], isLast: true }))
+    .mockResolvedValueOnce(response(200, freshIssue('20003')));
+  const result = await handler.findMatches({ context });
+  expect(result.strong.map(({ id }) => id)).toEqual(['20002', '20003']);
+  expect(JSON.parse(requestJira.mock.calls[3][1].body)).toHaveProperty('nextPageToken', 'next');
+  expect(requestJira).toHaveBeenCalledTimes(5);
+});
+
+test.each([{ ...matchingNc, recordType: 'CAPA' }, { ...matchingNc, detectedDate: null }])('nonapplicable capture does not search', async (record) => {
+  requestJira.mockResolvedValue(response(200, { value: record }));
+  expect(await handler.findMatches({ context })).toEqual({ applicable: false });
+  expect(requestJira).toHaveBeenCalledTimes(1);
+});
+
+test('findMatches rejects payload identifiers and missing resolver context before reading', async () => {
+  expect(await handler.findMatches({ context, payload: { issueId: '20002' } })).toHaveProperty('error');
+  expect(await handler.findMatches({ context: {}, payload: {} })).toHaveProperty('error');
+  expect(requestJira).not.toHaveBeenCalled();
+});
+
+test.each([403, 404])('own property or search denial (%s) returns nothing', async (status) => {
+  requestJira.mockResolvedValueOnce(response(status));
+  expect(await handler.findMatches({ context })).toBeNull();
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc })).mockResolvedValueOnce(response(status));
+  expect(await handler.findMatches({ context })).toBeNull();
+});
+
+test('a candidate API error returns an error instead of an incomplete no-match result', async () => {
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc }))
+    .mockResolvedValueOnce(response(200, { issues: [{ id: '20002' }] }))
+    .mockResolvedValueOnce(response(500, { secret: 'hidden' }));
+  expect(await handler.findMatches({ context })).toEqual({ error: expect.any(String) });
 });

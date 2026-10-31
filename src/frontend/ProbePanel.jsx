@@ -4,7 +4,7 @@ import { events, invoke, view } from '@forge/bridge';
 import { runProbes } from './probeRunner';
 import { formatResults, summarise } from '../lib/probeResults';
 
-function CopyResults({ text }) {
+export function CopyResults({ text }) {
   // Events are broadcast; isolate every panel instance with its own channel.
   const [channel, setChannel] = useState(null);
   const latest = useRef(text);

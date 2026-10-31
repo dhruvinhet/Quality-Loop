@@ -24,9 +24,17 @@ test('CAPA dates and evidence are optional, but a supplied link must be http(s)'
 test('builds the versioned property, preserves original, and clears CAPA-only fields for NC', () => {
   const input = Object.freeze({ ...nc, closedDate: '2026-10-30', effectivenessEvidenceUrl: 'https://example.com' });
   expect(buildCapture(input, '2026-10-31T00:00:00.000Z')).toEqual({
-    schemaVersion: 1, recordType: 'NC', partOriginal: nc.partNumber,
+    schemaVersion: 2, recordType: 'NC', partOriginal: nc.partNumber,
     partNorm: 'P-4471 -A', partBase: 'P-4471 ', partRevision: 'A',
     failureMode: 'FM-01', supplier: '', line: '', detectedDate: '2026-10-31',
-    closedDate: null, effectivenessEvidenceUrl: '', updatedAt: '2026-10-31T00:00:00.000Z',
+    closedDate: null, effectivenessEvidenceUrl: '', rootCause: '', actionsTaken: '', updatedAt: '2026-10-31T00:00:00.000Z',
   });
+});
+
+test('CAPA narrative fields are optional text and saved only for CAPA', () => {
+  const input = { ...nc, recordType: 'CAPA', rootCause: 'Inspection record', actionsTaken: 'Updated fixture' };
+  expect(validateCapture(input)).toEqual({});
+  expect(buildCapture(input)).toMatchObject({ schemaVersion: 2, rootCause: input.rootCause, actionsTaken: input.actionsTaken });
+  expect(buildCapture({ ...input, recordType: 'NC' })).toMatchObject({ rootCause: '', actionsTaken: '' });
+  expect(validateCapture({ ...input, rootCause: 1, actionsTaken: 'x'.repeat(2001) })).toMatchObject({ rootCause: expect.any(String), actionsTaken: expect.any(String) });
 });

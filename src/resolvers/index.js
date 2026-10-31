@@ -1,7 +1,9 @@
 import Resolver from '@forge/resolver';
 import api, { route } from '@forge/api';
 import { E1_PROBE } from '../config/devFlags';
-import { buildCapture, CAPTURE_FIELDS, validateCapture } from '../lib/capture';
+import { buildCapture, CAPTURE_FIELDS, validateCapture, validDate } from '../lib/capture';
+import { matchCaptures } from '../lib/match';
+import { buildMatchJql } from '../lib/matchJql';
 
 const resolver = new Resolver();
 
@@ -57,8 +59,50 @@ async function writeProperty(issueId, propertyKey, value) {
 define('loadCapture', [], async (issueId) => {
   const record = await readProperty(issueId, 'qualityloop');
   if (record == null) return null;
-  if (record.schemaVersion !== 1) return { error: 'This record uses an unsupported schema version.' };
+  if (![1, 2].includes(record.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
   return { record };
+});
+
+define('findMatches', [], async (issueId) => {
+  const started = Date.now();
+  const current = await readProperty(issueId, 'qualityloop');
+  if (current == null) return null;
+  if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
+  if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+  const jql = buildMatchJql(current);
+  const candidates = [];
+  const seen = new Set();
+  let nextPageToken;
+  do {
+    const response = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ jql, maxResults: 50, fields: ['summary', 'status'],
+        properties: ['qualityloop'], ...(nextPageToken ? { nextPageToken } : {}) }),
+    });
+    if (response.status === 403 || response.status === 404) return null;
+    if (!response.ok) throw new Error(`Match search returned HTTP ${response.status}`);
+    const data = await response.json();
+    const issues = (data.issues ?? []).filter(({ id }) => /^\d+$/.test(String(id)) && String(id) !== issueId && !seen.has(String(id)));
+    // Bound concurrency; use fresh metadata AND property rather than search snapshots.
+    for (let offset = 0; offset < issues.length; offset += 5) {
+      const fresh = await Promise.all(issues.slice(offset, offset + 5).map(async ({ id }) => {
+        seen.add(String(id));
+        const result = await api.asUser().requestJira(
+          route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`,
+          { headers: { Accept: 'application/json' } },
+        );
+        if (result.status === 403 || result.status === 404) return null;
+        if (!result.ok) throw new Error(`Candidate GET returned HTTP ${result.status}`);
+        const issue = await result.json();
+        const capture = issue.properties?.qualityloop;
+        if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
+        return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary, status: issue.fields?.status?.name };
+      }));
+      candidates.push(...fresh.filter(Boolean));
+    }
+    nextPageToken = data.isLast === true ? undefined : data.nextPageToken;
+  } while (nextPageToken);
+  return { applicable: true, ...matchCaptures({ ...current, id: issueId }, candidates), elapsedMs: Date.now() - started };
 });
 
 define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {
