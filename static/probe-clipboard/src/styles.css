@@ -1,0 +1,6 @@
+body { margin: 0; color: var(--ds-text, #172b4d); background: var(--ds-surface, #fff); font: 14px system-ui, sans-serif; }
+button { padding: 8px 12px; border: 0; border-radius: 4px; font: inherit; cursor: pointer; color: inherit; background: var(--ds-background-neutral, #ebecf0); }
+button:focus-visible { outline: 2px solid var(--ds-border-focused, #0052cc); outline-offset: 2px; }
+button:disabled { cursor: wait; opacity: 0.6; }
+p { margin: 8px 0; }
+textarea { box-sizing: border-box; width: 100%; min-height: 140px; }

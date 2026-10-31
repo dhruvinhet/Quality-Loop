@@ -7,12 +7,51 @@ modules:
       render: native
       title: qualityloop
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  jira:entityPropertySet:
+    - key: qualityloop-properties
+      properties:
+        - entityType: issue
+          propertyKey: qualityloop
+          values:
+            - path: recordType
+              type: string
+              searchAlias: qlRecordType
+            - path: partNorm
+              type: string
+              searchAlias: qlPart
+            - path: partBase
+              type: string
+              searchAlias: qlPartBase
+            - path: failureMode
+              type: string
+              searchAlias: qlFailureMode
+            - path: supplier
+              type: string
+              searchAlias: qlSupplier
+            - path: detectedDate
+              type: date
+              searchAlias: qlDetected
+            - path: closedDate
+              type: date
+              searchAlias: qlClosed
+        - entityType: issue
+          propertyKey: qualityloop-probe
+          values:
+            - path: token
+              type: string
+              searchAlias: qlProbeToken
   function:
     - key: resolver
       handler: index.handler
 resources:
   - key: main
     path: src/frontend/index.jsx
+  - key: probe-clipboard
+    path: static/probe-clipboard/dist
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
 app:
   runtime:
     name: nodejs24.x

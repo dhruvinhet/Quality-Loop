@@ -50,3 +50,6 @@ Thumbs.db
 
 
 /.forge/
+
+# Generated Forge clipboard resource (npm run build)
+static/probe-clipboard/dist/
