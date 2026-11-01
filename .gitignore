@@ -53,3 +53,6 @@ Thumbs.db
 
 # Generated Forge clipboard resource (npm run build)
 static/probe-clipboard/dist/
+
+# Generated evaluation predictions
+eval/out/
