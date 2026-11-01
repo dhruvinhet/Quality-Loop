@@ -1,6 +1,6 @@
 import { lookbackDays as defaultLookbackDays } from '../config/matching';
 import { validDate } from './capture';
-import { normalise } from './normalise';
+import { normalise, normaliseText } from './normalise';
 
 const DAY_MS = 86400000;
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -20,14 +20,15 @@ export function matchCaptures(current, candidates, lookbackDays = defaultLookbac
   if (current?.recordType !== 'NC' || !validDate(current.detectedDate) || !text(current.partOriginal).trim()) return classes;
   const start = windowStart(current.detectedDate, lookbackDays);
   const nc = normalise(current.partOriginal);
+  const failureMode = normaliseText(text(current.failureMode));
   for (const candidate of candidates) {
     if (!candidate || candidate.recordType !== 'CAPA' ||
         (current.id != null && String(candidate.id) === String(current.id)) ||
         (current.key && candidate.key === current.key) ||
         !text(candidate.partOriginal).trim() || !validDate(candidate.closedDate) ||
-        candidate.closedDate > current.detectedDate || candidate.closedDate < start) continue;
+        candidate.closedDate >= current.detectedDate || candidate.closedDate < start) continue;
     const part = normalise(candidate.partOriginal);
-    const sameFailureMode = !!text(current.failureMode) && candidate.failureMode === current.failureMode;
+    const sameFailureMode = !!failureMode && normaliseText(text(candidate.failureMode)) === failureMode;
     const sameSupplier = !!text(current.supplier).trim() && candidate.supplier === current.supplier;
     const sameLine = !!text(current.line).trim() && candidate.line === current.line;
     let classification;

@@ -20,10 +20,40 @@ test('spacing and case only differences are strong and preserve original', () =>
   const original = 'BRACKET   4471-A';
   expect(matchCaptures(current, [capa({ partNumber: original })]).strong[0].partOriginal).toBe(original);
 });
-test('different revision is relatedRevision, never strong', () => {
-  const result = classify(capa({ partNumber: 'P-4471-B' }));
+test.each(['P-4471-B', 'P-4471-AA', 'P-4471'])('different revision is relatedRevision, never strong: %s', (partNumber) => {
+  const result = classify(capa({ partNumber }));
   expect(result.strong).toEqual([]);
   expect(result.relatedRevision).toHaveLength(1);
+});
+
+test('two-letter revisions share the base, while identical revisions are strong', () => {
+  const current = { ...nc, partOriginal: ' p-100-aa ' };
+  const candidates = ['P-100-AA', 'P-100-AB', 'P-100-A'].map((partNumber) => capa({ partNumber }));
+  const result = matchCaptures(current, candidates);
+  expect(result.strong.map(({ partOriginal }) => partOriginal)).toEqual(['P-100-AA']);
+  expect(result.relatedRevision.map(({ partOriginal }) => partOriginal)).toEqual(['P-100-AB', 'P-100-A']);
+  expect(result.relatedRevision.every(({ partBase }) => partBase === 'P-100')).toBe(true);
+});
+
+test.each([
+  ['fm-01 ', 'FM-01'],
+  ['FM-01', 'fm-01 '],
+  [' \tfailure  mode\n01 ', 'FAILURE MODE 01'],
+])('failure modes use part-number normalisation and retain originals: %j vs %j', (currentMode, candidateMode) => {
+  const current = Object.freeze({ ...nc, failureMode: currentMode });
+  const candidate = Object.freeze(capa({ failureMode: candidateMode }));
+  const result = matchCaptures(current, [candidate]);
+  expect(result.strong).toHaveLength(1);
+  expect(result.strong[0].failureMode).toBe(candidateMode);
+  expect(result.strong[0].partOriginal).toBe(candidate.partOriginal);
+  expect(current.failureMode).toBe(currentMode);
+  expect(matchCaptures(current, [{ ...candidate, partOriginal: 'P-4471-AA' }]).relatedRevision).toHaveLength(1);
+});
+
+test('blank failure modes do not create signature matches', () => {
+  const result = matchCaptures({ ...nc, failureMode: ' \t ' }, [capa({ failureMode: '' })]);
+  expect(result.strong).toEqual([]);
+  expect(result.relatedRevision).toEqual([]);
 });
 test('same part and different failure mode is otherRelated', () => {
   expect(classify(capa({ failureMode: 'FM-02' })).otherRelated).toHaveLength(1);
@@ -43,10 +73,24 @@ test.each([
 ])('%s is excluded', (_, fields, metadata) => {
   expect(classify(capa(fields, metadata))).toEqual({ strong: [], relatedRevision: [], otherRelated: [] });
 });
-test('window bounds are inclusive and a configurable lookback uses UTC calendar days', () => {
-  expect(classify(capa({ closedDate: '2025-10-31' })).strong[0].daysSinceClosure).toBe(365);
-  expect(classify(capa({ closedDate: nc.detectedDate })).strong[0].daysSinceClosure).toBe(0);
+test.each([
+  [0, '2026-10-31', false],
+  [1, '2026-10-30', true],
+  [365, '2025-10-31', true],
+  [366, '2025-10-30', false],
+])('closure eligibility at %i elapsed days', (days, closedDate, eligible) => {
+  const result = classify(capa({ closedDate }));
+  if (eligible) {
+    expect(result.strong).toHaveLength(1);
+    expect(result.strong[0].daysSinceClosure).toBe(days);
+  } else {
+    expect(result).toEqual({ strong: [], relatedRevision: [], otherRelated: [] });
+  }
+});
+
+test('a configurable lookback uses UTC calendar days', () => {
   expect(matchCaptures(nc, [capa()], 29).strong).toEqual([]);
+  expect(matchCaptures(nc, [capa({ closedDate: nc.detectedDate })], 0).strong).toEqual([]);
   expect(windowStart('2024-03-01', 1)).toBe('2024-02-29');
 });
 test('missing supplier and line are not supporting facts', () => {

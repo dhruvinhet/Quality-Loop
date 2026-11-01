@@ -49,9 +49,7 @@ test('CLI uses shipped matching, CAPA ids and only NC inputs, with no Forge runt
   expect(result.stderr).toBe('');
   expect(result.status).toBe(0);
   expect(JSON.parse(readFileSync(path.join(fixture, 'out/predictions.json'), 'utf8'))).toEqual({
-    // Same-day closure is included by the shipped matcher, even though the
-    // evaluation README specifies a minimum of one elapsed day.
-    'NC-example': { strong: ['CAPA-same-day', 'CAPA-exact', 'CAPA-boundary'], relatedRevision: ['CAPA-revision'] },
+    'NC-example': { strong: ['CAPA-exact', 'CAPA-boundary'], relatedRevision: ['CAPA-revision'] },
     'NC-empty': { strong: [], relatedRevision: [] },
   });
 });

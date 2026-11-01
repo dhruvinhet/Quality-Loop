@@ -1,10 +1,14 @@
 import { PART_PATTERN } from '../config/partPattern';
 
+export function normaliseText(value) {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
 export function normalise(partOriginal, pattern = PART_PATTERN) {
   if (typeof partOriginal !== 'string') {
     throw new TypeError('Part number must be text.');
   }
-  const partNorm = partOriginal.trim().replace(/\s+/g, ' ').toUpperCase();
+  const partNorm = normaliseText(partOriginal);
   // A fresh regex keeps configurable global/sticky patterns deterministic.
   const match = new RegExp(pattern.source, pattern.flags).exec(partNorm);
   return {

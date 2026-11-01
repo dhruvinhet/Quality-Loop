@@ -6,13 +6,14 @@ test('normalises " p-4471 -a " conservatively without removing the space before 
   });
 });
 
-test('extracts a single-letter revision after normalising', () => {
-  expect(normalise('p-4471-b')).toEqual({
-    partOriginal: 'p-4471-b', partNorm: 'P-4471-B', partBase: 'P-4471', partRevision: 'B',
+test.each(['b', 'aa'])('extracts a one- or two-letter revision after normalising: %s', (revision) => {
+  const partOriginal = ` p-100-${revision} `;
+  expect(normalise(partOriginal)).toEqual({
+    partOriginal, partNorm: `P-100-${revision.toUpperCase()}`, partBase: 'P-100', partRevision: revision.toUpperCase(),
   });
 });
 
-test.each(['P-4471', 'P-4471-AA', 'P-4471-2', 'P4471', ''])('no revision match: %s', (part) => {
+test.each(['P-4471', 'P-4471-AAA', 'P-4471-2', 'P-4471-A2', 'P4471', ''])('no revision match: %s', (part) => {
   expect(normalise(part)).toMatchObject({ partBase: part, partRevision: null });
 });
 
