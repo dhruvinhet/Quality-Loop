@@ -16,4 +16,4 @@ When a Jira issue is deleted, QualityLoop makes a best-effort attempt to remove 
 
 After uninstall, Atlassian's retention and deletion rules apply to Forge hosted data. Uninstalling does not itself delete existing Jira issues. See [Data lifecycle for Forge-hosted storage](https://developer.atlassian.com/platform/forge/storage-reference/hosted-storage-data-lifecycle/) for Atlassian's current policy, including soft deletion and recovery.
 
-Contact: **[Replace with the app owner's privacy contact email or support URL before distribution.]**
+Contact: **[dhruvin1309@gmail.com]**
