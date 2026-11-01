@@ -2,7 +2,6 @@ import React, { useRef, useState } from 'react';
 import { Button, Label, Link, Lozenge, Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle, ModalTransition, Select, Stack, Text, TextArea } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import { REASON_CATEGORIES, STATE_LABELS, TYPE_LABELS, validateDecision, validEvidenceUrl } from '../lib/decisions';
-import ConcurrencyCheck from './ConcurrencyCheck';
 
 function DecisionModal({ type, onClose, onSubmit, busy, error }) {
   const [reason, setReason] = useState('');
@@ -37,7 +36,7 @@ function DecisionModal({ type, onClose, onSubmit, busy, error }) {
   </Modal>;
 }
 
-export default function DecisionDetails({ match, data, readOnly, ready, onChanged, concurrency = false }) {
+export default function DecisionDetails({ match, data, readOnly, ready, onChanged }) {
   const [type, setType] = useState(null);
   const [expectedVersion, setExpectedVersion] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -87,21 +86,20 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
   const eligible = data?.concernAllowed ?? (pairState?.state === 'CONFIRMED' || !match.effectivenessEvidenceUrl?.trim());
   return <Stack space="space.100">
     <Text><Lozenge>{pairState ? STATE_LABELS[pairState.state] : 'Decision state unavailable'}</Lozenge></Text>
-    {data && <Text>{`${data.confirmedCount} confirmed recurrence(s) since closure (may take a few seconds to update)`}</Text>}
+    {data && <Text>{`Engineer-confirmed recurrence count since closure: ${data.confirmedCount} (may take a few seconds to update)`}</Text>}
     {!data && <Text>Decision state and history are loading or unavailable.</Text>}
     {!readOnly && <>
-      <Button isDisabled={!ready || busy} onClick={() => open('CONFIRM')}>Confirm recurrence</Button>
+      <Button isDisabled={!ready || busy} onClick={() => open('CONFIRM')}>Engineer-confirmed recurrence</Button>
       <Button isDisabled={!ready || busy} onClick={() => open('NOT_RECURRENCE')}>Not a recurrence</Button>
-      <Button isDisabled={!ready || busy || !eligible} onClick={() => open('CONCERN')}>Raise effectiveness concern</Button>
-      {!eligible && <Text>Confirm recurrence first. A concern can also be raised when no effectiveness evidence is recorded.</Text>}
+      <Button isDisabled={!ready || busy || !eligible} onClick={() => open('CONCERN')}>Effectiveness concern</Button>
+      {!eligible && <Text>Record an Engineer-confirmed recurrence first. An Effectiveness concern can also be recorded when no effectiveness evidence is present.</Text>}
       {!!pairState?.version && <Button isDisabled={!ready || busy} onClick={() => open('SUPERSEDE')}>Correct explanation</Button>}
-      {concurrency && <ConcurrencyCheck capaId={match.id} disabled={!ready || busy} onChanged={onChanged} />}
     </>}
     {message && <Text>{message}</Text>}
     <Text>Decision history</Text>
     {data && !data.history.length && <Text>No decisions recorded.</Text>}
     {(data?.history ?? []).map((item) => <Stack key={item.id} space="space.050">
-      <Text>{`${item.authorDisplayName} · ${item.createdAt} · ${TYPE_LABELS[item.type] ?? item.type}${item.id === pairState?.latestDecisionId ? ' · Latest' : ''}`}</Text>
+      <Text>{`${item.authorDisplayName} · ${item.createdAt.slice(0, 10)} · ${TYPE_LABELS[item.type] ?? item.type}${item.id === pairState?.latestDecisionId ? ' · Latest' : ''}`}</Text>
       <Text>{item.reason}</Text>
       {item.reasonCategory && <Text>{`Category: ${item.reasonCategory.toLowerCase().replaceAll('_', ' ')}`}</Text>}
       {(item.evidenceLinks ?? []).filter(validEvidenceUrl).map((url, i) => <Text key={`${i}:${url}`}><Link href={url} openNewTab>{url}</Link></Text>)}

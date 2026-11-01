@@ -1,5 +1,7 @@
 export async function callPage(invoke, name, payload = {}) {
-  const result = await invoke(name, payload);
+  let result;
+  try { result = await invoke(name, payload); }
+  catch { throw new Error('The response could not be read. Refresh the page and check Jira before retrying.'); }
   if (!result) throw new Error('This operation is unavailable with your current permissions.');
   if (result.error) throw new Error(result.error);
   return result;

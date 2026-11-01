@@ -2,11 +2,11 @@ export const DECISION_TYPES = ['CONFIRM', 'NOT_RECURRENCE', 'CONCERN', 'SUPERSED
 export const REASON_CATEGORIES = ['DIFFERENT_MECHANISM', 'DIFFERENT_CAUSE', 'DATA_ERROR', 'OTHER'];
 export const STATE_LABELS = {
   NONE: 'Possible recurrence', CONFIRMED: 'Engineer-confirmed recurrence',
-  NOT_RECURRENCE: 'Not a recurrence', CONCERN_RAISED: 'Effectiveness concern raised',
+  NOT_RECURRENCE: 'Not a recurrence', CONCERN_RAISED: 'Effectiveness concern',
 };
 export const TYPE_LABELS = {
-  CONFIRM: 'Confirm recurrence', NOT_RECURRENCE: 'Not a recurrence',
-  CONCERN: 'Raise effectiveness concern', SUPERSEDE: 'Correct explanation',
+  CONFIRM: 'Engineer-confirmed recurrence', NOT_RECURRENCE: 'Not a recurrence',
+  CONCERN: 'Effectiveness concern', SUPERSEDE: 'Correct explanation',
 };
 
 export function validIssueId(value) { return typeof value === 'string' && /^\d{1,30}$/.test(value); }
@@ -49,7 +49,7 @@ export function concernAllowed(pairState, capa) {
   return pairState?.state === 'CONFIRMED' || !String(capa?.effectivenessEvidenceUrl ?? '').trim();
 }
 export function nextState(type, previous, capa) {
-  if (type === 'CONCERN' && !concernAllowed(previous, capa)) throw new Error('Confirm recurrence first, or review a CAPA with no effectiveness evidence.');
+  if (type === 'CONCERN' && !concernAllowed(previous, capa)) throw new Error('Record an Engineer-confirmed recurrence first, or review a CAPA with no effectiveness evidence.');
   if (type === 'SUPERSEDE') {
     if (!previous || previous.state === 'NONE') throw new Error('There is no decision to correct.');
     return previous.state;

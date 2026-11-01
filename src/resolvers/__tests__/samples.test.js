@@ -37,6 +37,12 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 const req = (payload = {}) => ({ context, payload });
+
+test.each(Object.keys(handler))('%s rejects payload issue identifiers before Jira access', async (name) => {
+  expect(await handler[name](req({ issueId: '99999' }))).toHaveProperty('error');
+  expect(requestJira).not.toHaveBeenCalled();
+  expect(kvs.set).not.toHaveBeenCalled();
+});
 function putSample(items = []) {
   const sample = { scenarioId: 'scenario', creatorAccountId: 'creator', items, status: 'creating',
     definitions: sampleDefinitions('2026-10-31'), issueTypeId: '5', linkTypeId: '2', notes: [] };
@@ -180,7 +186,7 @@ test('removal rechecks the label, ignores unregistered IDs and reports a denied 
   expect(await handler.removeSampleIssue(req({ token: plan.token, confirmed: true, index: 2 }))).toHaveProperty('error');
   expect(requestJira.mock.calls.filter(([, options]) => options.method === 'DELETE').map(([path]) => path)).toEqual(['/rest/api/3/issue/21']);
   const finish = await handler.finishSampleRemoval(req({ token: plan.token, confirmed: true }));
-  expect(finish.reports.join(' ')).toContain('QL-21: could not delete (HTTP 403)');
+  expect(finish.reports.join(' ')).toContain('QL-21: could not delete; check Jira before retrying.');
   expect(finish.reports.join(' ')).toContain('QL-20: label removed');
   expect(storage.has('sample:100')).toBe(false);
 });
@@ -192,7 +198,7 @@ test('inaccessible sample keys are not disclosed, including during removal', asy
   expect(plan.keys).toEqual([]);
   const result = await handler.finishSampleRemoval(req({ token: plan.token, confirmed: true }));
   expect(JSON.stringify(result)).not.toMatch(/SECRET|20/);
-  expect(result.reports).toHaveLength(1);
+  expect(result.reports).toEqual([]);
 });
 test('removal storage cleanup only selects records for successfully deleted registered samples', async () => {
   putSample([{ id: '20', key: 'QL-20' }, { id: '21', key: 'QL-21' }]);
@@ -224,4 +230,27 @@ test('missing project context and payload issue identifiers cannot trigger work'
   expect(await handler.advanceSample({ context: { accountId: 'creator', extension: {} } })).toBeNull();
   expect(await handler.advanceSample(req({ issueId: '999' }))).toHaveProperty('error');
   expect(requestJira).not.toHaveBeenCalled();
+});
+
+test.each([403, 404])('removal reports reauthorise the issue before returning its key (HTTP %s)', async (status) => {
+  putSample([{ id: '20', key: 'QL-20' }]);
+  let denied = false;
+  requestJira.mockImplementation(async (path, options) => {
+    if (path === '/rest/api/3/project/100') return response(200, project);
+    if (options.method === 'DELETE') return response(403);
+    return denied ? response(status, { key: 'SECRET-20' }) : response(200, sampleIssue('20'));
+  });
+  const { token } = await prepareRemoval();
+  await handler.removeSampleIssue(req({ token, confirmed: true, index: 0 }));
+  denied = true;
+  const result = await handler.finishSampleRemoval(req({ token, confirmed: true }));
+  expect(result.reports).toEqual([]);
+  expect(JSON.stringify(result)).not.toMatch(/QL-20|SECRET/);
+});
+
+test('sample resolver exceptions return safe messages and log no issue values', async () => {
+  requestJira.mockRejectedValue(new Error('SECRET-20 private fields'));
+  const result = await handler.sampleStatus(req());
+  expect(result).toEqual({ error: expect.any(String) });
+  expect(JSON.stringify([result, console.error.mock.calls])).not.toMatch(/SECRET|private|stack/);
 });

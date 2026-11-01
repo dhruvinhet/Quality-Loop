@@ -1,5 +1,4 @@
 import api, { route } from '@forge/api';
-import { E8_CHECK } from '../config/devFlags';
 import { concernAllowed, followupConfirmation, validIssueId, validateDecision, nextState, pairKey } from '../lib/decisions';
 import { claimTask, commitDecision, getPairState, queryDecisions, readDecision, saveTaskMetadata } from './decisionStore';
 
@@ -39,7 +38,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
     return { canEdit: await canEdit(issueId) };
   });
 
-  define('recordDecision', ['capaId', 'expectedVersion', 'type', 'reason', 'reasonCategory', 'evidenceLinks'], async (issueId, payload, trace, context) => {
+  define('recordDecision', ['capaId', 'expectedVersion', 'type', 'reason', 'reasonCategory', 'evidenceLinks'], async (issueId, payload, context) => {
     const fieldErrors = validateDecision(payload);
     if (Object.keys(fieldErrors).length) return { fieldErrors };
     // A payload identifier is re-authorised before it is used for any stored data.
@@ -114,17 +113,6 @@ export function registerDecisionResolvers({ define, findMatches }) {
     return { pairs };
   }
   define('getDecisions', [], loadDecisionView);
-  define('e8PairState', ['capaId'], async (issueId, payload) => {
-    if (!E8_CHECK) return { error: 'E8 check is disabled.' };
-    if (!validIssueId(payload.capaId)) return { error: 'Invalid CAPA.' };
-    if (!await getIssue(payload.capaId) || !await getIssue(issueId)) return null;
-    if (!await canEdit(issueId)) return deniedEdit();
-    const matches = await findMatches(issueId);
-    if (!matches) return null;
-    if (matches.strong?.[0]?.id !== payload.capaId) return { error: 'Choose the first strong card.' };
-    return { pairState: await getPairState(payload.capaId, issueId) };
-  });
-
   async function taskContext(issueId, payload, context) {
     if (!validIssueId(payload.capaId)) return null;
     const prefix = `${pairKey(payload.capaId, issueId)}:`;
@@ -141,13 +129,13 @@ export function registerDecisionResolvers({ define, findMatches }) {
     if (!await canCreate(project.id)) return { message: noCreateMessage(project.key) };
     return { capa, decision, project, confirmation: followupConfirmation(project.key, capa.key) };
   }
-  define('prepareConcernTask', ['capaId', 'decisionId'], async (issueId, payload, trace, context) => {
+  define('prepareConcernTask', ['capaId', 'decisionId'], async (issueId, payload, context) => {
     const result = await taskContext(issueId, payload, context);
     if (!result || result.error || result.message) return result;
     return { confirmation: result.confirmation };
   });
 
-  define('createConcernTask', ['capaId', 'decisionId', 'confirmation'], async (issueId, payload, trace, context) => {
+  define('createConcernTask', ['capaId', 'decisionId', 'confirmation'], async (issueId, payload, context) => {
     const result = await taskContext(issueId, payload, context);
     if (!result || result.error || result.message) return result;
     const { capa, decision, project, confirmation } = result;
@@ -162,6 +150,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
       do {
         const response = await api.asUser().requestJira(
           route`/rest/api/3/issue/createmeta/${project.id}/issuetypes?startAt=${startAt}&maxResults=200`, { headers });
+        if ([403, 404].includes(response.status)) return null;
         if (!response.ok) return { error: `Recorded. Task metadata could not be read (HTTP ${response.status}).` };
         const page = await response.json();
         taskType = page.issueTypes?.find((type) => type.name === 'Task' && !type.subtask);
@@ -189,23 +178,22 @@ export function registerDecisionResolvers({ define, findMatches }) {
           project: { id: project.id }, issuetype: { id: taskType.id }, summary: `Effectiveness re-review: ${capa.key}`,
         } }),
       });
-      if (!response.ok) return { error: response.status === 403 ? noCreateMessage(project.key)
-        : `Recorded. Task creation returned HTTP ${response.status}. Check Jira before trying another follow-up.` };
+      if ([403, 404].includes(response.status)) return null;
+      if (!response.ok) return { error: `Recorded. Task creation returned HTTP ${response.status}. Check Jira before trying another follow-up.` };
       const task = await response.json();
       taskKey = task.key;
       await saveTaskMetadata(payload.decisionId, { ...claimed, taskKey });
       // The server-generated task ID is still checked asUser before linking.
-      if (!await getIssue(task.id) || !await getIssue(payload.capaId)) return { error: 'Recorded. Task created, but access changed before linking. Check Jira.' };
+      if (!await getIssue(task.id) || !await getIssue(payload.capaId)) return null;
       const linked = await api.asUser().requestJira(route`/rest/api/3/issueLink`, {
         method: 'POST', headers, body: JSON.stringify({ type: { id: linkType.id },
           outwardIssue: { id: task.id }, inwardIssue: { id: capa.id } }),
       });
-      if (!linked.ok) return { error: `Recorded. Task ${taskKey} was created, but linking returned HTTP ${linked.status}. Ask the CAPA owner to link it.` };
+      if (!linked.ok) return { error: 'Recorded. Follow-up linking could not finish. Check Jira before creating another task.' };
       return { message: `Recorded. Created ${taskKey} and linked it to ${capa.key}.` };
-    } catch (error) {
-      console.error('QualityLoop concern follow-up:', error.message);
-      return { error: taskKey ? `Recorded. Task ${taskKey} was created; follow-up could not finish. Check Jira before creating another task.`
-        : 'Recorded. Follow-up could not finish. Check Jira before creating another task.' };
+    } catch {
+      console.error('QualityLoop concern follow-up failed.');
+      return { error: 'Recorded. Follow-up could not finish. Check Jira before creating another task.' };
     }
   });
 }

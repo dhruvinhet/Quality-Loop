@@ -1,197 +1,118 @@
-# QualityLoop — T4 decisions and read-only access
+# QualityLoop
 
-T4 adds a read-only panel for non-editors and append-only engineer decisions,
-with atomic pair-level version checks in Forge Custom Entity Store. See
-[T4.md](T4.md) for changed files, verified APIs, owner commands, and exact checks.
-The issue-context section shows the same decision state and history read-only.
+**Recurrence evidence for nonconformances in Jira: deterministic matching, viewing-user Jira access, and engineer decisions.**
 
-**Personal data:** decisions store the user's Atlassian account ID, written
-reason, evidence URLs, issue IDs, timestamps, and optional follow-up task key in
-Forge hosted storage. Display names are looked up as the viewing user and are
-not persisted. Reasons and evidence links may also contain personal data.
-Decision explanations are append-only: a correction records another decision.
+After a successful nonconformance (NC) save in the issue panel, QualityLoop requests a search for corrective actions (CAPAs) using recorded failure fields and closure dates before the NC's detection date. It shows their evidence and records the engineer's decision.
 
-New scopes: `storage:app` and `read:jira-user` (for author display names).
-The owner must deploy and then upgrade the installation. `E8_CHECK` defaults
-to false. No deletion trigger, admin page, or sample scenario is included.
+QualityLoop presents possible recurrence evidence rather than declaring that a CAPA failed. Matching and decision recording do not change CAPA status; the optional sample scenario can attempt status transitions on sample CAPAs. The app does not fetch evidence-link contents; opening those links is a separate browser action.
 
-## T3 security self-test (earlier work)
+> Built for Codegeist 2026, category **Apps for Specialized Industries**.
 
-The developer-only live permission checks, default-off `SEC_TEST` flag, owner
-commands and exact click/check sequence are in [T3.md](T3.md). T3 adds no scopes
-or manifest changes and leaves production behavior unchanged. No production
-permission bug was found. The Forge CLI and live site remain owner checks.
+## What it does
 
-## T2 matching and evidence
+| Step | What happens |
+|---|---|
+| **Capture** | An issue panel stores record type (NC or CAPA), part number, failure mode, supplier, line, dates and an effectiveness-evidence link in one issue property (`qualityloop`). |
+| **Match** | After a successful NC panel save, Jira is searched *as the viewing user*. Strong matches require the same normalised part number and failure mode, with a recorded QualityLoop closure date 1–365 days before detection; Jira status does not establish closure. An otherwise eligible different revision of the same base part is shown separately as a related revision. |
+| **Inspect** | Each card shows the matched fields, closure date, days since closure and whether effectiveness evidence was recorded. |
+| **Hints** | "Not matched — check these" can show up to three hints from limited searches: near-identical part numbers, CAPAs with no closed date and older precedents, with the same normalised failure mode. These are never treated as matches. |
+| **Decide** | The engineer records Engineer-confirmed recurrence, Not a recurrence (with a category) or Effectiveness concern. A follow-up task is created only after a confirmation dialog that lists it. |
 
-Current behavior, owner commands, verification limits, and the complete T2 test
-sequence are in [T2.md](T2.md). T2 adds deterministic matching, evidence cards,
-optional CAPA narratives, and a read-only issue-context view. E1 and E2 default
-to disabled. No new scopes, decisions, storage, or triggers are added.
+### Decision states
 
-The remaining content below is the historical T1/E1 implementation record;
-its scope-change commands and no-matching description refer to T1 only.
+- **Possible recurrence:** the system shows a match based on recorded fields only.
+- **Engineer-confirmed recurrence:** an explicit human decision, with a reason.
+- **Not a recurrence:** an explicit human decision, with a category.
+- **Effectiveness concern:** allowed when the pair's current state is Engineer-confirmed recurrence, or when the CAPA has no effectiveness-evidence URL. It can create a re-review task after the user confirms the listed writes.
 
-## Historical T1/E1 record
+Decision explanations are appended rather than overwritten; follow-up metadata can be updated and cleanup can delete records. This is not an immutable audit trail; no certification claim is made here.
 
-The existing native UI Kit Jira issue panel captures quality details and prefills
-them from the current issue's `qualityloop` property. T1 includes no matching,
-decisions, Forge storage, or triggers.
+## Try it
 
-## Owner commands
+1. On a Jira Cloud site with QualityLoop already installed, open a project where you can create issues.
+2. In the **project navigation → QualityLoop** page, click **Create sample scenario (5 issues)**. Review and confirm the listed writes. Creation can fail or leave a partial scenario; the plan includes a sample link and attempted Done-category transitions on the sample CAPAs.
+3. When ready, open the linked new sample NC and click **Save** in its **qualityloop** issue panel, with Edit Issues permission.
+4. Review the evidence and any hints, then record a decision. The sample does not guarantee a hint will be shown.
 
-Use Node.js 22.x or 24.x. From this directory, run these commands in order.
-Only the owner runs the final two commands, using the intended Forge environment
-and existing Jira installation when prompted:
+The repository's owner click/check sequence is in [T10.md](T10.md).
 
-```powershell
-npm ci
-npm test
-npm run lint
-npm run build
-forge lint --approve MAJOR_VERSION_RULE
-forge deploy --approve MAJOR_VERSION_RULE
-forge install --upgrade
+## Architecture
+
+```mermaid
+flowchart LR
+  P["jira:issuePanel<br/>qualityloop-hello-world-issue-panel"] -->|invoke| R["resolver → index.handler<br/>loadCapture / saveCapture / findMatches / findHints<br/>getPanelAccess / getDecisions / recordDecision"]
+  C["jira:issueContext<br/>qualityloop-evidence-context"] -->|read-only invoke| R
+  R -->|asUser: read and write issue property| J[(Jira issue properties<br/>qualityloop)]
+  R -->|asUser: enhanced JQL on property aliases| S["POST /rest/api/3/search/jql"]
+  R -->|pure functions| L["normalise / matchCaptures / selectHints"]
+  R -->|commitDecision: versioned transaction| K[("Forge Custom Entity Store<br/>decision / pair-state")]
+  P -->|invoke after concern; create only after confirmation| T["prepareConcernTask / createConcernTask<br/>index.handler"]
+  T -->|asUser| F["POST /rest/api/3/issue<br/>POST /rest/api/3/issueLink"]
+  T -->|claimTask / saveTaskMetadata| K
+  D["trigger: qualityloop-issue-deleted<br/>issue-deleted → index.onIssueDeleted"] -->|best-effort storage cleanup| K
+  A["jira:projectPage<br/>qualityloop-samples"] -->|invoke| B["sample-resolver → index.sampleHandler<br/>prepareSample / startSample / advanceSample"]
+  B -->|asUser: confirmed sample creation with properties| J
+  AP["jira:adminPage<br/>qualityloop-data"] -->|invoke| AR["data-resolver → index.adminHandler<br/>sampleNcLinks / startOrphanScan / findOrphanPage"]
+  AR -->|visible-record backfill| K
 ```
 
-The two new scopes trigger a major version change. Plain `forge lint` reports
-`0 errors, 0 warnings, 1 approval` until the scope change is acknowledged.
-`--approve MAJOR_VERSION_RULE` acknowledges that rule for the individual command.
-Deploying and then upgrading the installation is required for scopes to take effect.
-The clipboard Frame's generated resource is built by `npm run build`; build it
-before deploying. UI Kit itself is bundled by Forge.
+- **Modules:** `jira:issuePanel`, `jira:issueContext`, `jira:projectPage`, `jira:adminPage`, `jira:entityPropertySet` (aliases `qlRecordType`, `qlPart`, `qlPartBase`, `qlFailureMode`, `qlSupplier`, `qlDetected`, `qlClosed`), and an issue-deleted trigger.
+- **Scopes:** `read:jira-work`, `write:jira-work`, `storage:app`, `read:jira-user`.
+- **Hosting configuration:** no external egress permission or LLM dependency is declared. Runs on Atlassian eligibility has not been verified here.
 
-## Capture behavior
+## Permissions model
 
-- NC requires record type, part number, failure mode, and detected date.
-- CAPA requires record type, part number, and failure mode. Closed date and
-  effectiveness evidence link appear only for CAPA and are optional. Detected
-  date is optional for CAPA. Supplied dates must be real `YYYY-MM-DD` dates;
-  a supplied evidence link must use HTTP or HTTPS.
-- Supplier and line are optional text. Text inputs allow up to 2,000 characters;
-  the backend also enforces Jira's 32,768-byte property limit.
-- Switching to NC and saving clears the CAPA-only stored values.
-- `partOriginal` preserves every character typed. `partNorm` trims, collapses
-  whitespace, and uppercases. Revision parsing uses `src/config/partPattern.js`.
-  With the default pattern, `" p-4471 -a "` yields `partNorm: "P-4471 -A"`,
-  `partBase: "P-4471 "` (including its trailing space), `partRevision: "A"`.
-  No punctuation or internal space is silently removed.
+- User-facing Jira reads and writes use `asUser()`. Forge app-storage accesses are guarded by resolver permission checks.
+- The current issue ID comes from the resolver context, never from the frontend. Payload CAPA issue IDs are fetched as the user before stored pair/decision data is used; unexpected current-issue IDs are rejected.
+- Before returning candidate, history or count data, resolvers fetch the referenced issues as the user and omit denied or missing issues.
+- Users who can browse the issue but lack Edit Issues permission get a read-only panel.
+- A versioned transaction rejects a stale decision save; on a conflict, the panel requests refreshed state/history rather than overwriting it.
 
-All requests use `asUser()`. Resolvers take the issue ID only from
-`req.context.extension.issue.id`. Unexpected payload fields, including issue IDs,
-are rejected before any API call. HTTP 403/404 responses return no record data.
-Jira uses 404 for both a missing property and an inaccessible issue; either
-therefore displays an empty form. A failed write never displays success.
-Other load failures block editing and offer Retry loading.
+## Matching rules
 
-## E1 timing probe
+1. Normalisation trims whitespace, collapses inner whitespace and converts to uppercase. `partOriginal` preserves the input part number, and cards use it for display.
+2. The current revision pattern is a trailing `-<1–2 letters>` suffix of the normalised part. An otherwise eligible different revision of the same base part, with the same failure mode, is a **related revision**, never an exact match.
+3. A strong or related-revision match needs a recorded QualityLoop closed date between 1 and 365 days before the NC's detection date. Jira status is not a matching gate.
+4. Supplier and line do not affect strong or related-revision matches. Supplier can affect **Other related records**; line supplies supporting facts.
+5. Strong and related-revision matching use no fuzzy comparisons. Limited, labelled hints can surface some part-number typos; they do not cover every typo.
 
-Set `E1_PROBE = true` in `src/config/devFlags.js` before building/deploying to
-show the probe. The flag also gates its backend resolvers. Default: false.
+## Evaluation
 
-Click **Run 20 probes** on a test issue you can browse and edit. Each sequential
-run writes only `{token}` to `qualityloop-probe`, reads it back, then polls the
-enhanced JQL endpoint at one-second intervals without overlapping searches.
-The batch has no background execution: closing the panel stops further calls.
-The last probe token remains on the issue; starting another batch replaces it.
-Avoid concurrent batches on the same issue, since they share that property.
+The evaluation lives in [`eval/`](eval/README.md). The local dev run uses 24 CAPAs and 18 NCs. Dataset documentation describes synthetic data from a fictional plant, 60 NCs in total (including 42 held-out cases), and mechanism-based labels. Held-out contents and results were not inspected here.
 
-- **Write ms:** resolver time around the property PUT round trip.
-- **Readback ok:** whether the property GET returned this run's token.
-- **Search-hit ms:** frontend elapsed time since the write acknowledgement,
-  including readback, bridge latency, and polling. It is an observed visibility
-  measurement, not Jira's internal indexing timestamp. No `reconcileIssues` is
-  sent, so search reconciliation cannot mask normal indexing delay.
-- The search deadline is 60 seconds after write acknowledgement. A timeout
-  becomes `miss`. API/bridge failures become `error`, separately from misses.
-  The summary's min/median/max use successful search hits only.
-- A live table shows progress. After completion, **Copy results** copies plain
-  text containing all tokens, timings, readback values, errors, and the summary.
-  UI Kit has no documented clipboard API; a small Forge-hosted Frame provides
-  this control through the documented Events bridge. It uses the module
-  instance's `localId` to scope events. Browser clipboard denial exposes selected
-  text for manual copying. It adds no external egress or OAuth scope.
+- `eval/FROZEN.json` records a freeze date of 2026-11-01 and SHA-256 hashes. The scorer verifies the selected split's inputs and shared corpus against those hashes. The repository snapshot does not establish the historical order of freezing, harness development or test-split custody.
+- The scorer in `eval/reference/score.js` shares no code with the app.
 
-After measuring, set `E1_PROBE = false`, build, and deploy again.
+| Metric | Dev (18 NCs) | Test (42 NCs) |
+|---|---|---|
+| Signature correctness (L1) | 18/18 | TODO |
+| Pair recall | 0.813 | TODO |
+| Recall including hints | 0.938 | TODO |
+| Pair precision | 0.722 | TODO |
+| Review cards per NC (avg / max) | 1.06 / 2 | TODO |
 
-## Manifest and verified documentation
+These are synthetic pure-logic harness results, not live Jira or field performance. The scorer prints every missed TRUE pair with its dataset trap category.
 
-`app.id` and the native issue-panel wiring are unchanged. One
-`jira:entityPropertySet` indexes both issue properties:
+To run the evaluation:
 
-| Property | Field | Type | Search alias |
-| --- | --- | --- | --- |
-| qualityloop | recordType | string | qlRecordType |
-| qualityloop | partNorm | string | qlPart |
-| qualityloop | partBase | string | qlPartBase |
-| qualityloop | failureMode | string | qlFailureMode |
-| qualityloop | supplier | string | qlSupplier |
-| qualityloop | detectedDate | date | qlDetected |
-| qualityloop | closedDate | date | qlClosed |
-| qualityloop-probe | token | string | qlProbeToken |
+```
+npm run eval:dev
+```
 
-Only these scopes are declared:
+## Data and privacy
 
-- `read:jira-work`: GET issue properties and POST enhanced JQL search; also
-  required by the property-set module.
-- `write:jira-work`: PUT issue properties; also required by the property-set module.
+QualityLoop stores QualityLoop fields in Jira issue properties, and decisions in Forge app storage. Opening an evidence link is a separate browser action. Issue-deletion handling makes a best-effort attempt to clean associated app records; confirmed sample removal also cleans records for successfully deleted samples. Manual orphan deletion is disabled. See [PRIVACY.md](PRIVACY.md).
 
-Forge MCP verified the platform, manifest, backend, UI Kit components, Frame,
-Events bridge, theme/context bridge methods, property-set indexing syntax,
-both issue-property API methods, enhanced JQL request/response, and required
-scopes before implementation. Reference pages:
+## Development
 
-- [Entity property set](https://developer.atlassian.com/platform/forge/manifest-reference/modules/jira-entity-property-set/)
-- [Issue properties REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-properties/)
-- [Issue search REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
-- [UI Kit Form](https://developer.atlassian.com/platform/forge/ui-kit/components/form/)
-- [Frame](https://developer.atlassian.com/platform/forge/ui-kit/components/frame/)
-- [Events](https://developer.atlassian.com/platform/forge/apis-reference/ui-api-bridge/events/)
-- [Custom UI clipboard permissions](https://developer.atlassian.com/platform/forge/custom-ui/iframe/)
-- [Major version changes](https://developer.atlassian.com/platform/forge/versions/)
+```
+npm install
+npm test
+npm run eval:dev
+forge deploy -e development
+forge install -e development --site <site>.atlassian.net --product jira
+```
 
-No manifest entries or Jira REST schemas remain unverified. Live Jira rendering,
-index visibility, inherited Frame context, and browser clipboard behavior still
-require the owner checks below. The MCP HTTP-error diagnosis tool cannot accept
-a CLI lint approval; the approval was checked against Forge's versioning docs.
+Coding-agent rules are in [AGENTS.md](AGENTS.md).
 
-## Owner click/check sequence
-
-1. Open a Jira test issue you can browse and edit. Open **qualityloop** from the
-   issue's Apps menu. Confirm the loading state resolves to an empty capture form.
-2. Click **Save** with empty fields. Check record type, part number, and failure
-   mode messages. Select **NC**, leave detected date blank, and check its message.
-3. Enter `" p-4471 -a "` without the quotes, choose **FM-01 Crack**, supplier
-   `Supplier E1`, line `Line 1`, and detected date `2026-10-31`. Click **Save**.
-   Check the saving state and success message. Reload the issue and reopen the
-   panel; confirm the exact part string and all other fields are prefilled.
-4. Switch to **CAPA**. Confirm closed date and evidence link appear and detected
-   date becomes optional. Try an invalid evidence URL and check its message.
-   Save with a closed date and a valid link, reload, and check prefill. Switch
-   back to NC, save, then reload as CAPA to confirm CAPA-only saved values cleared.
-5. In Jira issue search's advanced JQL editor, run these separately after indexing:
-   `qlRecordType = "NC"`, `qlPart = "P-4471 -A"`, `qlPartBase = "P-4471 "`,
-   `qlFailureMode = "FM-01"`, `qlSupplier = "Supplier E1"`, and
-   `qlDetected = "2026-10-31"`. Restrict to the test issue if needed. After saving
-   a CAPA with a closed date, check `qlClosed = "<saved YYYY-MM-DD>"` too.
-6. With the dev flag true and deployed, click **Run 20 probes**. Check that the
-   live table progresses through exactly 20 sequential rows and readbacks are
-   true. Check min/median/max and misses. Click **Copy results**, paste into a
-   text editor, and confirm all 20 rows and the summary. If copying is blocked,
-   confirm the manual-copy fallback appears. A zero-hit timeout should be `miss`;
-   a rejected API request should be `error`.
-7. Test with a viewer who can browse but cannot edit the issue. Loading may show
-   readable data, but Save must show an error and never success. A viewer who
-   cannot browse the issue must receive no saved property data. If supported
-   in your test setup, revoke access while the panel is open and retry Save.
-8. Disable the dev flag, build/deploy, and confirm the probe is absent.
-
-## Local checks
-
-Jest covers normalization, original-string preservation, date/link validation,
-schema construction, context-only issue access, denied reads/writes, bounded JQL,
-probe gating, sequential polling, deadlines, cancellation, and result summaries.
-`jest.config.cjs` restricts discovery to `src/`; `eval/test/` is never read.
-`npm run build` creates the clipboard bundle and compiles app entry points.
-Dependency installation reported transitive npm audit findings; unrelated
-dependency upgrades are outside T1.
+File-and-line evidence and every README correction are recorded in [T11.md](T11.md).

@@ -7,7 +7,6 @@ jest.mock('@forge/api', () => ({ __esModule: true, default: { asUser: jest.fn() 
   route: (strings, ...values) => strings.reduce((text, part, index) => text + part + (values[index] ?? ''), '') }));
 jest.mock('../decisionStore', () => ({ commitDecision: jest.fn(), getPairState: jest.fn(), queryDecisions: jest.fn(),
   readDecision: jest.fn(), claimTask: jest.fn(), saveTaskMetadata: jest.fn() }));
-jest.mock('../../config/devFlags', () => ({ E8_CHECK: false }));
 
 const api = require('@forge/api').default;
 const store = require('../decisionStore');
@@ -165,8 +164,27 @@ test('task creation or linking errors preserve the concern and expose the separa
   expect(store.commitDecision).not.toHaveBeenCalled();
   expect(store.saveTaskMetadata).not.toHaveBeenCalled();
   createStatus = 201; linkStatus = 403;
-  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('error', expect.stringMatching(/QL-30003.*linking.*403/));
+  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('error', expect.stringContaining('Follow-up linking could not finish'));
   expect(store.saveTaskMetadata).toHaveBeenCalled();
+});
+
+test.each([403, 404])('payload CAPA HTTP %s returns nothing before reading stored pair data', async (status) => {
+  requestJira.mockResolvedValue(response(status, { secret: 'hidden' }));
+  for (const name of ['recordDecision', 'prepareConcernTask', 'createConcernTask']) {
+    const result = await handler[name]({ context, payload: name === 'recordDecision' ? payload
+      : name === 'prepareConcernTask' ? { capaId: '20002', decisionId } : followup });
+    expect(result).toBeNull();
+  }
+  expect(store.getPairState).not.toHaveBeenCalled();
+  expect(store.readDecision).not.toHaveBeenCalled();
+  expect(store.claimTask).not.toHaveBeenCalled();
+});
+
+test('follow-up infrastructure exceptions log no values and return no task identifiers', async () => {
+  store.saveTaskMetadata.mockRejectedValue(new Error('SECRET task fields https://private/evidence'));
+  const result = await handler.createConcernTask({ context, payload: followup });
+  expect(result).toEqual({ error: 'Recorded. Follow-up could not finish. Check Jira before creating another task.' });
+  expect(JSON.stringify([result, console.error.mock.calls])).not.toMatch(/SECRET|private|QL-30003|stack/);
 });
 test('duplicate follow-up request and a different author cannot create a task', async () => {
   store.claimTask.mockResolvedValue(null);
@@ -174,8 +192,4 @@ test('duplicate follow-up request and a different author cannot create a task', 
   store.readDecision.mockResolvedValue({ ...concern, authorAccountId: 'other-user' });
   expect(await handler.createConcernTask({ context, payload: followup })).toBeNull();
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(0);
-});
-test('E8 backend helper is absent when disabled', async () => {
-  expect(await handler.e8PairState({ context, payload: { capaId: '20002' } })).toEqual({ error: 'E8 check is disabled.' });
-  expect(requestJira).not.toHaveBeenCalled();
 });

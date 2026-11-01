@@ -1,14 +1,39 @@
 import Resolver from '@forge/resolver';
-import api, { route } from '@forge/api';
-import { kvs } from '@forge/kvs';
-import { detectOrphans, RECORD_ENTITIES } from '../lib/cleanup';
-import { backfillPair, deleteRecordBatch, recordPage } from './cleanupStore';
-import { pageDefine, readTicket, requireAdmin, saveTicket, validCursor } from './pageUtils';
+import { route } from '@forge/api';
+import { kvs, WhereConditions } from '@forge/kvs';
+import { visibleRecords, RECORD_ENTITIES } from '../lib/cleanup';
+import { backfillPair, recordPage } from './cleanupStore';
+import { pageDefine, readTicket, requireAdmin, saveTicket, userJira, validCursor } from './pageUtils';
+import { removableSample } from '../lib/sampleScenario';
 
 const resolver = new Resolver();
-// T5 explicitly permits asApp existence checks here. Return status-derived IDs
-// only to a freshly authorised Jira admin, never Jira fields or response bodies.
-const existence = (id) => api.asApp().requestJira(route`/rest/api/3/issue/${id}?fields=id`);
+// Jira 404 means missing OR unbrowsable. It is never proof of deletion.
+const existence = (id) => userJira(route`/rest/api/3/issue/${id}?fields=id`);
+
+// Re-fetch registered NCs as the viewer before returning checklist links.
+pageDefine(resolver, 'sampleNcLinks', ['cursor'], async (context, { cursor }) => {
+  if (!await requireAdmin(context)) return null;
+  if (!validCursor(cursor)) return { error: 'Refresh sample links to try again.' };
+  let query = kvs.query().where('key', WhereConditions.beginsWith('sample:')).limit(10);
+  if (cursor) query = query.cursor(cursor);
+  const page = await query.getMany();
+  const keys = [];
+  for (const { key } of page.results) {
+    // Queries may lag a removal; the current registration is authoritative.
+    const sample = await kvs.get(key);
+    const item = sample?.status !== 'removing' ? sample?.items?.[4] : null;
+    if (!/^sample:\d+$/.test(key) || !/^\d+$/.test(item?.id ?? '')) continue;
+    const response = await userJira(route`/rest/api/3/issue/${item.id}?fields=labels,project&properties=qualityloop`);
+    if ([403, 404].includes(response.status)) continue;
+    if (!response.ok) throw new Error(`Sample NC read returned HTTP ${response.status}`);
+    const issue = await response.json();
+    if (String(issue.id) === String(item.id) && removableSample([String(item.id)], issue) &&
+        String(issue.fields?.project?.id) === key.slice('sample:'.length) && issue.properties?.qualityloop?.recordType === 'NC') {
+      keys.push(issue.key);
+    }
+  }
+  return { keys: [...new Set(keys)], nextCursor: page.nextCursor };
+});
 
 pageDefine(resolver, 'startOrphanScan', [], async (context) => {
   if (!await requireAdmin(context)) return null;
@@ -17,52 +42,26 @@ pageDefine(resolver, 'startOrphanScan', [], async (context) => {
 
 pageDefine(resolver, 'findOrphanPage', ['token', 'entity', 'cursor'], async (context, { token, entity, cursor }) => {
   if (!await requireAdmin(context)) return null;
-  if (!await readTicket('orphan-scan', token, context)) return { error: 'The scan expired. Find orphaned records again.' };
+  if (!await readTicket('orphan-scan', token, context)) return { error: 'The scan expired. Scan accessible app records again.' };
   if (!RECORD_ENTITIES.includes(entity) || !validCursor(cursor)) return { error: 'Invalid scan page.' };
   const page = await recordPage(entity, cursor);
+  const visible = await visibleRecords(page.records, existence);
   let backfilled = 0;
   let backfillPending = 0;
-  for (const record of page.records) {
+  for (const record of visible) {
     try { if (await backfillPair(record)) backfilled += 1; }
-    catch (error) {
+    catch {
       backfillPending += 1;
-      console.error('QualityLoop pair-state backfill deferred:', error.message);
+      console.error('QualityLoop pair-state backfill deferred.');
     }
   }
-  // The same issue may occur on many pages and in both entities. Cache only its
-  // status for this scan, with separate keys to keep each value below KVS limits.
-  const checked = async (id) => {
-    const key = `orphan-existence:${token}:${id}`;
-    const cached = await kvs.get(key);
-    if (cached) return { status: cached.status, ok: cached.status >= 200 && cached.status < 300 };
-    const response = await existence(id);
-    await kvs.set(key, { status: response.status }, { ttl: { unit: 'HOURS', value: 1 } });
-    return response;
-  };
-  const result = await detectOrphans(page.records, checked);
-  const reviewToken = result.records.length ? await saveTicket('orphan-review', context, {
-    records: result.records.map(({ entity: name, key }) => ({ entity: name, key })),
-  }) : undefined;
-  return { entity, scanned: page.records.length, orphanCount: result.records.length,
-    recordIds: result.records.map(({ key }) => key), missingIds: result.missingIds,
-    unknownIds: result.unknownIds, nextCursor: page.nextCursor, token: reviewToken, backfilled, backfillPending };
+  return { entity, scanned: visible.length, nextCursor: page.nextCursor, backfilled, backfillPending };
 });
 
-pageDefine(resolver, 'deleteOrphanPage', ['token', 'confirmed'], async (context, { token, confirmed }) => {
+// Old clients and pre-release review tickets cannot delete on an ambiguous 404.
+pageDefine(resolver, 'deleteOrphanPage', ['token', 'confirmed'], async (context) => {
   if (!await requireAdmin(context)) return null;
-  if (confirmed !== true) return { error: 'Confirm the listed app-record deletions first.' };
-  const ticket = await readTicket('orphan-review', token, context);
-  if (!ticket) return { error: 'This review expired. Find orphaned records again.' };
-  const records = [];
-  for (const { entity, key } of ticket.records) {
-    const value = await kvs.entity(entity).get(key);
-    if (value) records.push({ entity, key, value });
-  }
-  // Recheck immediately before deleting. Permission failures never select a record.
-  const result = await detectOrphans(records, existence);
-  await deleteRecordBatch(result.records);
-  await kvs.delete(`orphan-review:${token}`);
-  return { deleted: result.records.length, retained: records.length - result.records.length };
+  return { error: 'Orphan deletion is unavailable: Jira cannot distinguish a missing issue from one you cannot browse. No records were deleted.' };
 });
 
 export const handler = resolver.getDefinitions();

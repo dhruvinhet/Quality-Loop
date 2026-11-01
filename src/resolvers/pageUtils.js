@@ -14,8 +14,8 @@ export function pageDefine(resolver, name, fields, fn) {
       }
       if (!req.context?.accountId) return null;
       return await fn(req.context, payload);
-    } catch (error) {
-      console.error(`QualityLoop ${name}:`, error.message);
+    } catch {
+      console.error(`QualityLoop ${name} failed.`);
       return { error: 'QualityLoop could not complete this operation. Refresh the page and check the result before retrying.' };
     }
   });

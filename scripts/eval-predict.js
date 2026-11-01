@@ -66,10 +66,11 @@ async function main() {
   }
   mkdirSync(path.dirname(values.out), { recursive: true });
   writeFileSync(values.out, `${JSON.stringify(predictions, null, 2)}\n`);
-  console.log(`Wrote predictions for ${ncs.length} NCs to ${values.out}`);
+  console.log('Wrote evaluation predictions.');
 }
 
-main().catch((error) => {
-  console.error(`eval-predict: ${error.message}`);
+main().catch(() => {
+  console.error('eval-predict failed. Check the input format and output path.');
+  console.error('Usage: node scripts/eval-predict.js --data <dir> --corpus <file> --out <file>');
   process.exitCode = 1;
 });

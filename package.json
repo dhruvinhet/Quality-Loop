@@ -1,11 +1,11 @@
 {
   "name": "jira-issue-panel-ui-kit",
-  "version": "1.1.52-next.14",
+  "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
   "private": true,
   "scripts": {
-    "lint": "eslint --ext .js,.jsx src scripts static/probe-clipboard/src",
+    "lint": "eslint --ext .js,.jsx src scripts",
     "test": "jest --runInBand",
     "build": "node scripts/build.js",
     "eval:dev": "node scripts/eval-predict.js --data eval/dev --corpus eval/corpus/capas.json --out dist/eval/dev-predictions.json && node eval/reference/score.js --split dev --data eval/dev --predictions dist/eval/dev-predictions.json"

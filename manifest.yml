@@ -65,12 +65,6 @@ modules:
             - path: closedDate
               type: date
               searchAlias: qlClosed
-        - entityType: issue
-          propertyKey: qualityloop-probe
-          values:
-            - path: token
-              type: string
-              searchAlias: qlProbeToken
   function:
     - key: resolver
       handler: index.handler
@@ -89,8 +83,6 @@ resources:
     path: src/frontend/index.jsx
   - key: evidence-context
     path: src/frontend/issueContext.jsx
-  - key: probe-clipboard
-    path: static/probe-clipboard/dist
 permissions:
   scopes:
     - read:jira-work

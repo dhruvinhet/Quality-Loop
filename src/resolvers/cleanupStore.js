@@ -46,7 +46,7 @@ export async function backfillPair(record) {
 
 export async function cleanupIssueRecords(issueId) {
   const deadline = Date.now() + 18000;
-  const checkBudget = () => { if (Date.now() >= deadline) throw new Error('Cleanup time budget reached; use the admin orphan scan.'); };
+  const checkBudget = () => { if (Date.now() >= deadline) throw new Error('Cleanup time budget reached.'); };
   let failed = false;
   for (const entity of RECORD_ENTITIES) {
     for (const index of ['by-issue', 'by-capa']) {
@@ -58,9 +58,9 @@ export async function cleanupIssueRecords(issueId) {
           await deleteRecordBatch(recordsForIssues(page.records, [issueId]));
           cursor = page.nextCursor;
         } while (cursor);
-      } catch (error) {
+      } catch {
         failed = true;
-        console.error('QualityLoop indexed cleanup incomplete:', entity, index, error.message);
+        console.error('QualityLoop indexed cleanup incomplete.');
       }
     }
   }
@@ -75,9 +75,9 @@ export async function cleanupIssueRecords(issueId) {
         await deleteRecordBatch(recordsForIssues(page.records, [issueId]));
         cursor = page.nextCursor;
       } while (cursor);
-    } catch (error) {
+    } catch {
       failed = true;
-      console.error('QualityLoop cleanup scan incomplete:', entity, error.message);
+      console.error('QualityLoop cleanup scan incomplete.');
     }
   }
   return { complete: !failed };
@@ -88,7 +88,7 @@ export async function onIssueDeleted(event) {
   try {
     if (event?.eventType !== 'avi:jira:deleted:issue' || event.selfGenerated || !/^\d{1,30}$/.test(event.issue?.id ?? '')) return;
     await cleanupIssueRecords(event.issue.id);
-  } catch (error) {
-    console.error('QualityLoop issue deletion cleanup incomplete:', error.message);
+  } catch {
+    console.error('QualityLoop issue deletion cleanup incomplete.');
   }
 }

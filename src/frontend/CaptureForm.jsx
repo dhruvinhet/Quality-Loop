@@ -14,13 +14,13 @@ const asPayload = (data) => ({
   failureMode: data.failureMode?.value ?? '',
 });
 
-export default function CaptureForm({ record, onSaved }) {
-  const [recordType, setRecordType] = useState(record?.recordType ?? '');
+export default function CaptureForm({ record, initialRecordType = '', onSaved }) {
+  const [recordType, setRecordType] = useState(record?.recordType ?? initialRecordType);
   const [message, setMessage] = useState(null);
   const [serverErrors, setServerErrors] = useState({});
   const { register, getFieldId, getValues, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
-      recordType: RECORD_TYPES.find(({ value }) => value === record?.recordType) ?? null,
+      recordType: RECORD_TYPES.find(({ value }) => value === (record?.recordType ?? initialRecordType)) ?? null,
       partNumber: record?.partOriginal ?? '',
       failureMode: FAILURE_MODES.find(({ value }) => value === record?.failureMode) ?? null,
       supplier: record?.supplier ?? '',
@@ -52,7 +52,9 @@ export default function CaptureForm({ record, onSaved }) {
       } else if (!result?.record) {
         setMessage({ appearance: 'error', text: result?.error || 'Save was not completed. Check your issue access and try again.' });
       } else {
-        setMessage({ appearance: 'success', text: 'Quality details saved.' });
+        setMessage({ appearance: 'success', text: result.record.recordType === 'NC'
+          ? 'Quality details saved. Review the evidence below and record an engineer decision.'
+          : 'Quality details saved. Open an NC to review possible recurrence evidence.' });
         onSaved?.(result.record);
       }
     } catch {
@@ -90,7 +92,7 @@ export default function CaptureForm({ record, onSaved }) {
         {error('line')}
 
         <Label labelFor={getFieldId('detectedDate')}>{recordType === 'NC' ? 'Detected date *' : 'Detected date'}</Label>
-        <DatePicker {...field('detectedDate')} isDisabled={isSubmitting} />
+        <DatePicker {...field('detectedDate')} dateFormat="YYYY-MM-DD" locale="en-CA" placeholder="YYYY-MM-DD" shouldShowCalendarButton isDisabled={isSubmitting} />
         {error('detectedDate')}
 
         {recordType === 'CAPA' && <>
@@ -101,7 +103,7 @@ export default function CaptureForm({ record, onSaved }) {
           <TextArea {...field('actionsTaken')} defaultValue={getValues('actionsTaken')} isDisabled={isSubmitting} maxLength={2000} />
           {error('actionsTaken')}
           <Label labelFor={getFieldId('closedDate')}>Closed date</Label>
-          <DatePicker {...field('closedDate')} defaultValue={getValues('closedDate')} isDisabled={isSubmitting} />
+          <DatePicker {...field('closedDate')} defaultValue={getValues('closedDate')} dateFormat="YYYY-MM-DD" locale="en-CA" placeholder="YYYY-MM-DD" shouldShowCalendarButton isDisabled={isSubmitting} />
           {error('closedDate')}
 
           <Label labelFor={getFieldId('effectivenessEvidenceUrl')}>Effectiveness evidence link</Label>
@@ -110,8 +112,9 @@ export default function CaptureForm({ record, onSaved }) {
         </>}
       </FormSection>
       {message && <SectionMessage appearance={message.appearance}><Text>{message.text}</Text></SectionMessage>}
+      {isSubmitting && <Text>Saving quality details. Please wait before making another change.</Text>}
       <FormFooter align="start">
-        <LoadingButton type="submit" appearance="primary" isLoading={isSubmitting} isDisabled={isSubmitting}>Save</LoadingButton>
+        <LoadingButton type="submit" appearance="primary" isLoading={isSubmitting} isDisabled={isSubmitting}>{isSubmitting ? 'Saving quality details…' : 'Save'}</LoadingButton>
       </FormFooter>
     </Form>
   );

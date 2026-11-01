@@ -1,4 +1,9 @@
-const { pollSampleReady, scanRecordPages } = require('../pageRunner');
+const { callPage, pollSampleReady, scanRecordPages } = require('../pageRunner');
+
+test('page bridge failures cannot expose raw exceptions', async () => {
+  await expect(callPage(jest.fn().mockRejectedValue(new Error('SECRET issue details')), 'sampleStatus'))
+    .rejects.toThrow('The response could not be read. Refresh the page and check Jira before retrying.');
+});
 
 test('readiness polls every two seconds until ready', async () => {
   let time = 0;

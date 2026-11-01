@@ -1,4 +1,4 @@
-const { recordReferences, recordsForIssues, detectOrphans } = require('../cleanup');
+const { recordReferences, recordsForIssues, visibleRecords } = require('../cleanup');
 const records = [
   { entity: 'decision', key: '20:10:decision', value: { capaId: '20', issueId: '10' } },
   { entity: 'pair-state', key: '20:10', value: { version: 3, state: 'CONFIRMED' } },
@@ -14,21 +14,24 @@ test('cleanup selects either side with exact ID equality, including legacy pairs
   expect(recordReferences('pair-state', '20:10', { capaId: '999', issueId: '888' })).toEqual(['10', '20']);
 });
 const response = (status) => ({ status, ok: status >= 200 && status < 300 });
-test('orphan detection deduplicates IDs and selects only explicit 404 responses', async () => {
-  const getIssue = jest.fn(async (id) => response({ '10': 200, '20': 404, '11': 403, '120': 500 }[id]));
-  const result = await detectOrphans(records, getIssue);
-  expect(result.records).toEqual(records.slice(0, 2));
-  expect(result.missingIds).toEqual(['20']);
-  expect(result.unknownIds).toEqual(['11', '120']);
+test('visibility deduplicates IDs and requires both NC and CAPA browse access', async () => {
+  const getIssue = jest.fn(async (id) => response({ '10': 200, '20': 200, '11': 403, '120': 404 }[id]));
+  expect(await visibleRecords(records, getIssue)).toEqual(records.slice(0, 2));
   expect(getIssue).toHaveBeenCalledTimes(4);
 });
-test.each([401, 403, 429, 500, 503])('HTTP %s must not select app records for deletion', async (status) => {
-  const result = await detectOrphans(records, async () => response(status));
-  expect(result.records).toEqual([]);
-  expect(result.missingIds).toEqual([]);
+
+test.each([403, 404])('HTTP %s cannot expose records or select them for deletion', async (status) => {
+  expect(await visibleRecords(records, async () => response(status))).toEqual([]);
 });
-test('network errors are unresolved, not missing issues', async () => {
-  const result = await detectOrphans(records, async () => { throw new Error('offline'); });
-  expect(result.records).toEqual([]);
-  expect(result.unknownIds).toHaveLength(4);
+
+test.each([401, 429, 500, 503])('HTTP %s returns an error rather than a fabricated empty result', async (status) => {
+  await expect(visibleRecords(records, async () => response(status))).rejects.toThrow('Issue access could not be checked.');
+});
+
+test('network errors propagate to the safe resolver error boundary', async () => {
+  await expect(visibleRecords(records, async () => { throw new Error('offline'); })).rejects.toThrow('offline');
+});
+
+test('malformed or incomplete references are never considered authorised', async () => {
+  expect(await visibleRecords([{ entity: 'decision', key: 'bad', value: { issueId: '10' } }], async () => response(200))).toEqual([]);
 });

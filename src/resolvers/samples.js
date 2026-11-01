@@ -177,7 +177,7 @@ pageDefine(resolver, 'sampleReadiness', [], async (context) => {
   for (const item of sample.items.slice(0, 3)) {
     const issue = await sampleIssue(item.id);
     if (!removableSample(ids, issue)) return null;
-    visibleKeys.push(item.key);
+    visibleKeys.push(issue.key);
   }
   return { ready: true, newNcKey: nc.key, notes: sample.notes.filter((note) => visibleKeys.some((key) => note.startsWith(`${key}:`))) };
 });
@@ -229,13 +229,13 @@ pageDefine(resolver, 'removeSampleIssue', ['token', 'confirmed', 'index'], async
     if (ticket.deletedIds.includes(item.id)) return { handled: true };
     const issue = await sampleIssue(item.id);
     if (!issue) ticket.inaccessible = true;
-    else if (!removableSample(sample.items.map(({ id }) => id), issue)) ticket.reports.push(`${item.key}: label removed; left in Jira.`);
-    else if (issue.key !== item.key) ticket.reports.push(`${item.key}: key changed; left in Jira. Open a new confirmation to remove it.`);
+    else if (!removableSample(sample.items.map(({ id }) => id), issue)) ticket.reports.push({ id: item.id, message: 'label removed; left in Jira.' });
+    else if (issue.key !== item.key) ticket.reports.push({ id: item.id, message: 'key changed; left in Jira. Open a new confirmation to remove it.' });
     else {
       // No deleteSubtasks: a newly added subtask must never be deleted implicitly.
       const response = await userJira(route`/rest/api/3/issue/${item.id}`, { method: 'DELETE' });
       if (response.ok) ticket.deletedIds.push(item.id);
-      else ticket.reports.push(`${item.key}: could not delete (HTTP ${response.status}); left in Jira.`);
+      else ticket.reports.push({ id: item.id, message: 'could not delete; check Jira before retrying.' });
     }
     await kvs.set(`sample-removal:${token}`, ticket, { ttl: { unit: 'HOURS', value: 1 } });
     return { handled: true };
@@ -264,10 +264,17 @@ pageDefine(resolver, 'finishSampleRemoval', ['token', 'confirmed'], async (conte
     const ticket = await readTicket('sample-removal', token, context);
     const sample = await kvs.get(sampleKey(project));
     if (!ticket || !sample || sample.removalToken !== token || ticket.projectId !== project.id || ticket.scenarioId !== sample.scenarioId || confirmed !== true) return { error: 'Open a new removal confirmation.' };
+    // Reports can outlive Browse permission. Never return saved issue keys.
+    const reports = [];
+    for (const report of ticket.reports) {
+      if (!ticket.issues.some(({ id }) => id === report.id)) continue;
+      const issue = await sampleIssue(report.id);
+      if (issue) reports.push(`${issue.key}: ${report.message}`);
+    }
     await kvs.delete(sampleKey(project));
     await kvs.delete(`sample-removal:${token}`);
-    return { reports: [...ticket.reports, ...(ticket.inaccessible ? ['Some stored sample issues could not be accessed or deleted with your permissions.'] : [])],
-      message: 'Sample registration cleared. Any issues reported above remain in Jira.' };
+    return { reports,
+      message: 'Sample registration cleared. Check Jira for any sample issues left behind.' };
   });
 });
 

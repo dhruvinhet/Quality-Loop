@@ -1,0 +1,23 @@
+> jira-issue-panel-ui-kit@1.0.0 eval:dev
+> node scripts/eval-predict.js --data eval/dev --corpus eval/corpus/capas.json --out dist/eval/dev-predictions.json && node eval/reference/score.js --split dev --data eval/dev --predictions dist/eval/dev-predictions.json
+
+Wrote evaluation predictions.
+QualityLoop evaluation - split=dev, NCs=18, CAPAs=24, frozen=2026-11-01
+L1 signature correctness: 18/18  (target: all)
+L2 pair recall:     0.813  (13/16 TRUE pairs surfaced; target >= 0.95)
+L2 NC-level recall: 0.800  (12/15 NCs with a true precedent had at least one surfaced)
+L2 pair precision:  0.722  (13 TRUE, 5 NOT, 1 AMBIGUOUS surfaced; ambiguous excluded; reported, no target)
+Review burden: avg 1.056 cards/NC (target <= 3), max 2 (target <= 6)
+Missed TRUE pairs by trap type: {"same_signature_diff_mechanism":1,"capa_format_not_normalisable":1,"misclassified_failure_mode":1}
+  MISS NC-002->CAPA-17 (same_signature_diff_mechanism)
+  MISS NC-027->CAPA-15 (capa_format_not_normalisable)
+  MISS NC-043->CAPA-01 (misclassified_failure_mode)
+--- Secondary: "check these" hints (not matches) ---
+Recall incl. hints: 0.938  (2 of 3 missed TRUE pairs appear as hints)
+Hint cards: avg 0.389/NC, max 2; hints that are TRUE 2, NOT 5
+  STILL MISSED NC-043->CAPA-01 (misclassified_failure_mode)
+  FIELD-ONLY MATCH (expert says not a recurrence) NC-002->CAPA-01 (same_signature_diff_mechanism)
+  FIELD-ONLY MATCH (expert says not a recurrence) NC-017->CAPA-06 (baseline)
+  FIELD-ONLY MATCH (expert says not a recurrence) NC-018->CAPA-07 (related_revision_is_true)
+  FIELD-ONLY MATCH (expert says not a recurrence) NC-021->CAPA-10 (multiple_strong_one_true)
+  FIELD-ONLY MATCH (expert says not a recurrence) NC-024->CAPA-11 (open_capa)

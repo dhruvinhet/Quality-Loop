@@ -1,17 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Button, SectionMessage, Spinner, Stack, Text } from '@forge/react';
+import ForgeReconciler, { Button, Heading, SectionMessage, Spinner, Stack, Text } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import CaptureForm from './CaptureForm';
 import ReadOnlyCapture from './ReadOnlyCapture';
-import ProbePanel from './ProbePanel';
 import MatchView from './MatchView';
-import MatchCheck from './MatchCheck';
-import { E1_PROBE, E2_CHECK } from '../config/devFlags';
 
 const App = () => {
   const [state, setState] = useState({ loading: true });
   const [attempt, setAttempt] = useState(0);
   const [matchRefresh, setMatchRefresh] = useState(0);
+  const [setupType, setSetupType] = useState('');
   useEffect(() => {
     let active = true;
     setState({ loading: true });
@@ -23,18 +21,27 @@ const App = () => {
     });
     return () => { active = false; };
   }, [attempt]);
-  if (state.loading) return <Spinner label="Loading quality details" />;
+  if (state.loading) return <Stack space="space.100">
+    <Spinner label="Loading quality details" />
+    <Text>Loading QualityLoop details. Please wait.</Text>
+  </Stack>;
   if (state.error) return <Stack space="space.200">
     <SectionMessage appearance="error"><Text>{state.error}</Text></SectionMessage>
     <Button onClick={() => setAttempt((value) => value + 1)}>Retry loading</Button>
   </Stack>;
   return (
     <Stack space="space.300">
-      {state.canEdit ? <CaptureForm record={state.record} onSaved={() => setMatchRefresh((value) => value + 1)} />
+      {state.canEdit ? (!state.record && !setupType ? <Stack space="space.200">
+        <Heading size="small" as="h2">Not a QualityLoop record yet</Heading>
+        <Text>Choose a record type, enter the quality details, then save this issue.</Text>
+        <Button appearance="primary" onClick={() => setSetupType('NC')}>Set up as NC</Button>
+        <Button onClick={() => setSetupType('CAPA')}>Set up as CAPA</Button>
+      </Stack> : <CaptureForm record={state.record} initialRecordType={setupType} onSaved={(record) => {
+        setState((previous) => ({ ...previous, record }));
+        setMatchRefresh((value) => value + 1);
+      }} />)
         : <ReadOnlyCapture record={state.record} />}
-      <MatchView refresh={matchRefresh} readOnly={!state.canEdit} />
-      {state.canEdit && E1_PROBE && <ProbePanel />}
-      {state.canEdit && E2_CHECK && <MatchCheck />}
+      {state.record && <MatchView refresh={matchRefresh} readOnly={!state.canEdit} />}
     </Stack>
   );
 };

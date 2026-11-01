@@ -11,7 +11,6 @@ jest.mock('@forge/api', () => ({
   default: { asUser: jest.fn() },
   route: (strings, ...values) => strings.reduce((text, part, index) => text + part + (values[index] ?? ''), ''),
 }));
-jest.mock('../../config/devFlags', () => ({ E1_PROBE: true }));
 
 // Explicit require keeps mocks registered before module evaluation with esbuild.
 const api = require('@forge/api').default;
@@ -76,43 +75,31 @@ test('returns errors as data on Jira failure without exposing response bodies', 
   expect(await handler.loadCapture({ context })).toHaveProperty('error');
 });
 
-const token = 'E1-1793400000000-1';
-test('probe writes a separate property and verifies the readback token', async () => {
-  requestJira.mockResolvedValueOnce(response(200)).mockResolvedValueOnce(response(200, { value: { token } }));
-  expect(await handler.probeWrite({ context, payload: { token } })).toEqual({ writeMs: expect.any(Number) });
-  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001/properties/qualityloop-probe');
-  expect(JSON.parse(requestJira.mock.calls[0][1].body)).toEqual({ token });
-  expect(await handler.probeRead({ context, payload: { token } })).toEqual({ readbackOk: true });
-  requestJira.mockResolvedValueOnce(response(200, { value: { token: 'different' } }));
-  expect(await handler.probeRead({ context, payload: { token } })).toEqual({ readbackOk: false });
+test('release resolver surface contains only shipped features', () => {
+  expect(Object.keys(handler).sort()).toEqual([
+    'loadCapture', 'saveCapture', 'findMatches', 'findHints', 'getPanelAccess',
+    'recordDecision', 'getDecisions', 'prepareConcernTask', 'createConcernTask',
+  ].sort());
 });
 
-test('enhanced search is bounded to the context issue and requests only its id', async () => {
-  requestJira.mockResolvedValue(response(200, { issues: [{ id: '10001' }] }));
-  expect(await handler.probeSearch({ context, payload: { token } })).toEqual({ hit: true });
-  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/search/jql');
-  expect(JSON.parse(requestJira.mock.calls[0][1].body)).toEqual({
-    jql: `qlProbeToken = "${token}" AND issue = 10001`, maxResults: 1, fields: ['id'],
-  });
-  requestJira.mockResolvedValue(response(200, { issues: [{ id: '99999' }] }));
-  expect(await handler.probeSearch({ context, payload: { token } })).toEqual({ hit: false });
-});
-
-test('rejects JQL injection and returns nothing for denied search', async () => {
-  expect(await handler.probeSearch({ context, payload: { token: '" OR issue != 1' } })).toHaveProperty('error');
-  expect(requestJira).not.toHaveBeenCalled();
-  requestJira.mockResolvedValue(response(403));
-  expect(await handler.probeSearch({ context, payload: { token } })).toBeNull();
-});
-
-test('server gates every probe when the flag is false', async () => {
-  jest.resetModules();
-  jest.doMock('../../config/devFlags', () => ({ E1_PROBE: false }));
-  const disabled = require('../index').handler;
-  for (const name of ['probeWrite', 'probeRead', 'probeSearch']) {
-    expect(await disabled[name]({ context, payload: { token } })).toEqual({ error: 'E1 probe is disabled.' });
+test.each(Object.keys(handler))('%s rejects injected issue IDs and self-test fields before any Jira call', async (name) => {
+  for (const injected of [{ issueId: '99999' }, { securityTest: true }]) {
+    expect(await handler[name]({ context, payload: injected })).toHaveProperty('error');
   }
   expect(requestJira).not.toHaveBeenCalled();
+});
+
+test.each(Object.keys(handler))('%s requires the current issue ID in resolver context', async (name) => {
+  expect(await handler[name]({ context: {}, payload: {} })).toHaveProperty('error');
+  expect(requestJira).not.toHaveBeenCalled();
+});
+
+test('exceptions never expose field values or stack traces in responses or logs', async () => {
+  requestJira.mockRejectedValue(new Error('SECRET-1 narrative https://private/evidence'));
+  const result = await handler.loadCapture({ context });
+  expect(result).toEqual({ error: expect.any(String) });
+  expect(JSON.stringify([result, console.error.mock.calls])).not.toMatch(/SECRET|narrative|private|stack/);
+  expect(console.error).toHaveBeenCalledWith('QualityLoop loadCapture failed.');
 });
 
 const matchingNc = { schemaVersion: 1, recordType: 'NC', partOriginal: 'P-4471-A',

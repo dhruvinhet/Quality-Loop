@@ -15,19 +15,21 @@ export function recordsForIssues(records, issueIds) {
   return records.filter(({ entity, key, value }) => recordReferences(entity, key, value).some((id) => ids.has(id)));
 }
 
-// Only an explicit 404 is an orphan. A 403, 429, network error or 5xx is unknown.
-export async function detectOrphans(records, getIssue) {
+// Authorise both references before exposing counts or changing a stored record.
+// A user-context 404 cannot distinguish a deletion from an issue security denial.
+export async function visibleRecords(records, getIssue) {
   const ids = [...new Set(records.flatMap(({ entity, key, value }) => recordReferences(entity, key, value)))];
-  const missing = new Set();
-  const unknown = new Set();
+  const visible = new Set();
   for (let offset = 0; offset < ids.length; offset += 5) {
     await Promise.all(ids.slice(offset, offset + 5).map(async (id) => {
-      try {
-        const response = await getIssue(id);
-        if (response.status === 404) missing.add(id);
-        else if (!response.ok) unknown.add(id);
-      } catch { unknown.add(id); }
+      const response = await getIssue(id);
+      if ([403, 404].includes(response.status)) return;
+      if (!response.ok) throw new Error('Issue access could not be checked.');
+      visible.add(id);
     }));
   }
-  return { records: recordsForIssues(records, [...missing]), missingIds: [...missing].sort(), unknownIds: [...unknown].sort() };
+  return records.filter(({ entity, key, value }) => {
+    const refs = recordReferences(entity, key, value);
+    return refs.length === 2 && refs.every((id) => visible.has(id));
+  });
 }
