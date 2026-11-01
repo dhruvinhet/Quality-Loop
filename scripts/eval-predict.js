@@ -17,12 +17,12 @@ async function main() {
   // imports neither a resolver nor a Forge runtime and performs no network I/O.
   const { outputFiles } = buildSync({
     stdin: {
-      contents: "export { buildCapture } from './src/lib/capture'; export { matchCaptures } from './src/lib/match';",
+      contents: "export { buildCapture } from './src/lib/capture'; export { matchCaptures } from './src/lib/match'; export { selectHints } from './src/lib/hints';",
       resolveDir: path.resolve(__dirname, '..'),
     },
     bundle: true, platform: 'node', target: 'node22', format: 'esm', write: false,
   });
-  const { buildCapture, matchCaptures } = await import(
+  const { buildCapture, matchCaptures, selectHints } = await import(
     `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`
   );
 
@@ -56,10 +56,12 @@ async function main() {
     if (typeof record.id !== 'string' || !record.id || Object.hasOwn(predictions, record.id)) {
       throw new Error('Each NC must have a unique, nonempty string id.');
     }
-    const { strong, relatedRevision } = matchCaptures(toRecord(record, 'NC'), candidates);
+    const current = toRecord(record, 'NC');
+    const { strong, relatedRevision } = matchCaptures(current, candidates);
     predictions[record.id] = {
       strong: strong.map(({ id }) => id),
       relatedRevision: relatedRevision.map(({ id }) => id),
+      hints: selectHints(current, candidates).map(({ id }) => id),
     };
   }
   mkdirSync(path.dirname(values.out), { recursive: true });

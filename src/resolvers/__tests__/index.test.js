@@ -197,3 +197,91 @@ test('a candidate API error returns an error instead of an incomplete no-match r
     .mockResolvedValueOnce(response(500, { secret: 'hidden' }));
   expect(await handler.findMatches({ context })).toEqual({ error: expect.any(String) });
 });
+
+test('findHints uses separate capped enhanced searches and freshly reauthorised records only', async () => {
+  const captures = {
+    '20002': { ...matchingCapa, partOriginal: 'P-4741-A' },
+    '20003': { ...matchingCapa, closedDate: null },
+    '20004': { ...matchingCapa, closedDate: '2025-10-30' },
+  };
+  let search = 0;
+  requestJira.mockImplementation(async (path) => {
+    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path === '/rest/api/3/search/jql') return response(200, {
+      issues: [{ id: '10001' }, { id: String(20002 + search++) }, { id: '20002' }],
+      nextPageToken: 'must-not-follow', total: 999, fields: { summary: 'STALE' },
+    });
+    const id = path.match(/issue\/(\d+)\?/)[1];
+    return response(200, freshIssue(id, captures[id]));
+  });
+  const result = await handler.findHints({ context });
+  expect(result.hints.map(({ id, reason }) => [id, reason])).toEqual([
+    ['20002', 'Part number differs only slightly'], ['20003', 'No closed date recorded'], ['20004', 'Older precedent'],
+  ]);
+  expect(Object.keys(result)).toEqual(['applicable', 'hints']);
+  expect(JSON.stringify(result)).not.toMatch(/STALE|999|total|count/i);
+  const searches = requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql');
+  expect(searches).toHaveLength(3);
+  for (const [, options] of searches) {
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body)).toEqual({ jql: expect.any(String), maxResults: 50, fields: ['id'] });
+  }
+  expect(requestJira).toHaveBeenCalledTimes(7);
+  expect(api.asUser).toHaveBeenCalledTimes(7);
+});
+
+test.each([403, 404])('findHints drops denied candidate %s without reading or leaking its body', async (status) => {
+  const json = jest.fn();
+  requestJira.mockImplementation(async (path) => {
+    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path === '/rest/api/3/search/jql') return response(200, {
+      issues: [{ id: '20002', key: 'SECRET', properties: { qualityloop: matchingCapa } }], total: 42,
+    });
+    return { status, ok: false, json };
+  });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, hints: [] });
+  expect(json).not.toHaveBeenCalled();
+});
+
+test('findHints rechecks stored values instead of hinting from stale search data', async () => {
+  requestJira.mockImplementation(async (path) => {
+    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path === '/rest/api/3/search/jql') return response(200, {
+      issues: [{ id: '20002', properties: { qualityloop: { ...matchingCapa, closedDate: null } } }],
+    });
+    return response(200, freshIssue()); // now a strong match, never a hint
+  });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, hints: [] });
+});
+
+test('findHints enforces each search cap even on oversized pages and ignores continuation tokens', async () => {
+  requestJira.mockImplementation(async (path) => {
+    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path === '/rest/api/3/search/jql') return response(200, {
+      issues: Array.from({ length: 60 }, (_, index) => ({ id: String(20000 + index) })), nextPageToken: 'ignored',
+    });
+    const id = path.match(/issue\/(\d+)\?/)[1];
+    return response(200, freshIssue(id, { ...matchingCapa, closedDate: null }));
+  });
+  expect((await handler.findHints({ context })).hints).toHaveLength(3);
+  expect(requestJira.mock.calls.filter(([path]) => path.includes('?fields='))).toHaveLength(50);
+  expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')).toHaveLength(3);
+});
+
+test('findHints rejects payload ids and missing context before accessing Jira', async () => {
+  expect(await handler.findHints({ context, payload: { issueId: '99999' } })).toHaveProperty('error');
+  expect(await handler.findHints({ context: {} })).toHaveProperty('error');
+  expect(requestJira).not.toHaveBeenCalled();
+});
+
+test.each([403, 404])('findHints returns nothing on current-property or search denial %s', async (status) => {
+  requestJira.mockResolvedValueOnce(response(status));
+  expect(await handler.findHints({ context })).toBeNull();
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc })).mockResolvedValueOnce(response(status));
+  expect(await handler.findHints({ context })).toBeNull();
+});
+
+test('hint search errors return an error, never a fabricated empty-hints success', async () => {
+  requestJira.mockResolvedValueOnce(response(200, { value: matchingNc })).mockResolvedValueOnce(response(500));
+  expect(await handler.findHints({ context })).toEqual({ error: expect.any(String) });
+});

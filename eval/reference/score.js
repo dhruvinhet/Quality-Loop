@@ -113,4 +113,26 @@ console.log(`L2 pair precision:  ${r(precision)}  (${tp} TRUE, ${fp} NOT, ${ambS
 console.log(`Review burden: avg ${r(avgB)} cards/NC (target <= 3), max ${maxB} (target <= 6)`);
 console.log('Missed TRUE pairs by trap type:', JSON.stringify(missByTrap));
 misses.forEach((x) => console.log('  MISS ' + x));
+
+// ---- Secondary report (added 2026-11-01, after freeze; data unchanged): "check these" hints ----
+// Hints are NOT matches. They are reported separately and never change the primary metrics above.
+if (Object.values(preds).some((p) => Array.isArray(p.hints))) {
+  let caught = 0, hintCards = 0, hintMax = 0, hintTrue = 0, hintNot = 0;
+  const stillMissed = [];
+  for (const nc of ncs) {
+    const p = preds[nc.id];
+    const hints = new Set(p.hints || []);
+    hintCards += hints.size; hintMax = Math.max(hintMax, hints.size);
+    const lab = labels[nc.id];
+    for (const h of hints) { const l = lab.pairs[h] || 'NOT'; if (l === 'TRUE') hintTrue++; else if (l === 'NOT') hintNot++; }
+  }
+  for (const m of misses) {
+    const [id, rest] = m.split('->'); const cid = rest.split(' ')[0];
+    if ((preds[id].hints || []).includes(cid)) caught++; else stillMissed.push(m);
+  }
+  console.log('--- Secondary: "check these" hints (not matches) ---');
+  console.log(`Recall incl. hints: ${r((truePairs - misses.length + caught) / truePairs)}  (${caught} of ${misses.length} missed TRUE pairs appear as hints)`);
+  console.log(`Hint cards: avg ${r(hintCards / ncs.length)}/NC, max ${hintMax}; hints that are TRUE ${hintTrue}, NOT ${hintNot}`);
+  stillMissed.forEach((x) => console.log('  STILL MISSED ' + x));
+}
 falsePos.forEach((x) => console.log('  FIELD-ONLY MATCH (expert says not a recurrence) ' + x));

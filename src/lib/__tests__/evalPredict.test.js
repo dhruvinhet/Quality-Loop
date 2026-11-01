@@ -44,13 +44,15 @@ test('CLI uses shipped matching, CAPA ids and only NC inputs, with no Forge runt
     candidate('CAPA-future', { closedDate: '2026-11-01' }),
     candidate('CAPA-no-date', { closedDate: null, jiraStatus: 'Done' }),
     candidate('CAPA-other-mode', { failureMode: 'FM-02' }),
+    candidate('CAPA-slight', { part: 'BRACKET 4417-A' }),
   ] });
   const result = run('--data', 'inputs', '--corpus', 'corpus.json', '--out', 'out/predictions.json');
   expect(result.stderr).toBe('');
   expect(result.status).toBe(0);
   expect(JSON.parse(readFileSync(path.join(fixture, 'out/predictions.json'), 'utf8'))).toEqual({
-    'NC-example': { strong: ['CAPA-exact', 'CAPA-boundary'], relatedRevision: ['CAPA-revision'] },
-    'NC-empty': { strong: [], relatedRevision: [] },
+    'NC-example': { strong: ['CAPA-exact', 'CAPA-boundary'], relatedRevision: ['CAPA-revision'],
+      hints: ['CAPA-slight', 'CAPA-no-date', 'CAPA-too-old'] },
+    'NC-empty': { strong: [], relatedRevision: [], hints: [] },
   });
 });
 

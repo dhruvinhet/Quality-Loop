@@ -8,7 +8,7 @@
     "lint": "eslint --ext .js,.jsx src scripts static/probe-clipboard/src",
     "test": "jest --runInBand",
     "build": "node scripts/build.js",
-    "eval:dev": "node scripts/eval-predict.js --data eval/dev --corpus eval/corpus/capas.json --out eval/out/dev-predictions.json && node eval/reference/score.js --split dev --data eval/dev --predictions eval/out/dev-predictions.json"
+    "eval:dev": "node scripts/eval-predict.js --data eval/dev --corpus eval/corpus/capas.json --out dist/eval/dev-predictions.json && node eval/reference/score.js --split dev --data eval/dev --predictions dist/eval/dev-predictions.json"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

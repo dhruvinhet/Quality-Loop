@@ -99,6 +99,14 @@ test('related revision is allowed but other related is refused', async () => {
   expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
   expect(store.commitDecision).not.toHaveBeenCalled();
 });
+
+test.each([
+  { partOriginal: 'P-4741-A' }, { closedDate: null }, { closedDate: '2025-10-30' },
+])('hint candidates cannot receive decisions: %j', async (fields) => {
+  captured = { ...capa, ...fields };
+  expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
+  expect(store.commitDecision).not.toHaveBeenCalled();
+});
 test('CAPA denial returns nothing and no stored pair information', async () => {
   hidden.add('20002');
   expect(await handler.recordDecision({ context, payload })).toBeNull();
