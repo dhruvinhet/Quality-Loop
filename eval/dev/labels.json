@@ -1,0 +1,154 @@
+{
+  "split": "dev",
+  "defaultPairLabel": "NOT",
+  "labels": [
+    {
+      "id": "NC-001",
+      "pairs": {
+        "CAPA-01": "TRUE"
+      },
+      "trap": "baseline",
+      "mechanismNote": "Same furnace-drift mechanism as CAPA-01; its calibration control lapsed."
+    },
+    {
+      "id": "NC-002",
+      "pairs": {
+        "CAPA-01": "NOT",
+        "CAPA-17": "TRUE"
+      },
+      "trap": "same_signature_diff_mechanism",
+      "mechanismNote": "Handling damage (CAPA-17 mechanism, closed 384 days earlier), not furnace drift; CAPA-01 matches on fields only."
+    },
+    {
+      "id": "NC-003",
+      "pairs": {
+        "CAPA-01": "TRUE",
+        "CAPA-02": "TRUE"
+      },
+      "trap": "revision_both_true",
+      "mechanismNote": "Same furnace for both revisions; both furnace CAPAs targeted this mechanism."
+    },
+    {
+      "id": "NC-004",
+      "pairs": {
+        "CAPA-01": "TRUE"
+      },
+      "trap": "format_variant_normalisable",
+      "mechanismNote": "Trim/collapse/uppercase makes it an exact match."
+    },
+    {
+      "id": "NC-009",
+      "pairs": {
+        "CAPA-03": "TRUE"
+      },
+      "trap": "baseline",
+      "mechanismNote": "Die regrind interval exceeded (CAPA-03 control)."
+    },
+    {
+      "id": "NC-011",
+      "pairs": {
+        "CAPA-04": "TRUE"
+      },
+      "trap": "baseline",
+      "mechanismNote": "Vent-cleaning control not followed."
+    },
+    {
+      "id": "NC-014",
+      "pairs": {
+        "CAPA-05": "TRUE"
+      },
+      "trap": "baseline",
+      "mechanismNote": "Fixture locator wear again."
+    },
+    {
+      "id": "NC-017",
+      "pairs": {
+        "CAPA-06": "NOT",
+        "CAPA-07": "TRUE"
+      },
+      "trap": "baseline",
+      "mechanismNote": "Measurement mechanism again (CAPA-07)."
+    },
+    {
+      "id": "NC-018",
+      "pairs": {
+        "CAPA-06": "TRUE",
+        "CAPA-07": "NOT"
+      },
+      "trap": "related_revision_is_true",
+      "mechanismNote": "Shared grinding fixture: the rev-B CAPA is the real precedent, the same-revision CAPA is not."
+    },
+    {
+      "id": "NC-021",
+      "pairs": {
+        "CAPA-09": "TRUE",
+        "CAPA-10": "NOT"
+      },
+      "trap": "multiple_strong_one_true",
+      "mechanismNote": "Packaging mechanism (CAPA-09, 353 days); coating CAPA-10 is a field-only match."
+    },
+    {
+      "id": "NC-023",
+      "pairs": {
+        "CAPA-11": "TRUE"
+      },
+      "trap": "baseline",
+      "mechanismNote": "Poka-yoke control defeated."
+    },
+    {
+      "id": "NC-024",
+      "pairs": {
+        "CAPA-11": "NOT",
+        "CAPA-12": "NOT"
+      },
+      "trap": "open_capa",
+      "mechanismNote": "Drill-breakage CAPA-12 is still open, so this is not a recurrence after closure."
+    },
+    {
+      "id": "NC-027",
+      "pairs": {
+        "CAPA-15": "TRUE"
+      },
+      "trap": "capa_format_not_normalisable",
+      "mechanismNote": "CAPA-15 part stored as 'SM-6604 -A' (stray inner space)."
+    },
+    {
+      "id": "NC-031",
+      "pairs": {
+        "CAPA-21": "TRUE"
+      },
+      "trap": "no_revision_part",
+      "mechanismNote": "Part has no revision suffix."
+    },
+    {
+      "id": "NC-037",
+      "pairs": {},
+      "trap": "no_history",
+      "mechanismNote": "No precedent exists."
+    },
+    {
+      "id": "NC-043",
+      "pairs": {
+        "CAPA-01": "TRUE"
+      },
+      "trap": "misclassified_failure_mode",
+      "mechanismNote": "Wrong failure mode entered; exact matching cannot see it."
+    },
+    {
+      "id": "NC-051",
+      "pairs": {
+        "CAPA-03": "TRUE"
+      },
+      "trap": "related_revision_is_true",
+      "mechanismNote": "Same die for both revisions."
+    },
+    {
+      "id": "NC-054",
+      "pairs": {
+        "CAPA-08": "AMBIGUOUS"
+      },
+      "trap": "ambiguous",
+      "mechanismNote": "Not enough evidence to decide."
+    }
+  ]
+}

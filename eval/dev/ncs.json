@@ -1,0 +1,203 @@
+{
+  "split": "dev",
+  "ncs": [
+    {
+      "id": "NC-001",
+      "recordType": "NC",
+      "summary": "Crack at bend radius",
+      "description": "Crack at bend radius on 6 forgings from one heat-treat batch; furnace thermocouple found 12 days past calibration.",
+      "part": "P-5120-A",
+      "failureMode": "FM-01",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-04-15"
+    },
+    {
+      "id": "NC-002",
+      "recordType": "NC",
+      "summary": "Crack on edge",
+      "description": "Single crack on edge with an impact mark next to it; part found near conveyor end.",
+      "part": "P-5120-A",
+      "failureMode": "FM-01",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-04-20"
+    },
+    {
+      "id": "NC-003",
+      "recordType": "NC",
+      "summary": "Crack at bend radius rev B",
+      "description": "Bend-radius cracks on rev B; furnace over-temperature alarm was bypassed.",
+      "part": "P-5120-B",
+      "failureMode": "FM-01",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-06-10"
+    },
+    {
+      "id": "NC-004",
+      "recordType": "NC",
+      "summary": "crack after heat treat",
+      "description": "Engineer typed part number lowercase with spaces. Furnace drift again.",
+      "part": " p-5120-a ",
+      "failureMode": "FM-01",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-05-01"
+    },
+    {
+      "id": "NC-009",
+      "recordType": "NC",
+      "summary": "Burr on trim edge",
+      "description": "Heavy burr along trim edge; die at 31k hits since regrind.",
+      "part": "P-5120-A",
+      "failureMode": "FM-02",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-03-01"
+    },
+    {
+      "id": "NC-011",
+      "recordType": "NC",
+      "summary": "Porosity in housing",
+      "description": "Gas porosity near vent area; vent found blocked.",
+      "part": "H-2210-A",
+      "failureMode": "FM-04",
+      "supplier": "SUP-B",
+      "line": "L2",
+      "detectedDate": "2026-02-10"
+    },
+    {
+      "id": "NC-014",
+      "recordType": "NC",
+      "summary": "Bore position off",
+      "description": "Bore position out by 0.08 mm; locator pin worn.",
+      "part": "H-2210-A",
+      "failureMode": "FM-03",
+      "supplier": "SUP-B",
+      "line": "L2",
+      "detectedDate": "2026-06-01"
+    },
+    {
+      "id": "NC-017",
+      "recordType": "NC",
+      "summary": "Shaft rev C dimension",
+      "description": "Dimension reject in hot CMM room; parts pass after soaking.",
+      "part": "S-1185-C",
+      "failureMode": "FM-03",
+      "supplier": "SUP-C",
+      "line": "L3",
+      "detectedDate": "2026-08-01"
+    },
+    {
+      "id": "NC-018",
+      "recordType": "NC",
+      "summary": "Shaft rev C dimension",
+      "description": "Fixture locator worn; CMM room temperature normal.",
+      "part": "S-1185-C",
+      "failureMode": "FM-03",
+      "supplier": "SUP-C",
+      "line": "L3",
+      "detectedDate": "2026-09-05"
+    },
+    {
+      "id": "NC-021",
+      "recordType": "NC",
+      "summary": "White rust",
+      "description": "White rust after monsoon storage; VCI bags missing.",
+      "part": "PL-3302-A",
+      "failureMode": "FM-05",
+      "supplier": "SUP-E",
+      "line": "L1",
+      "detectedDate": "2026-07-20"
+    },
+    {
+      "id": "NC-023",
+      "recordType": "NC",
+      "summary": "Missing hole",
+      "description": "New operator skipped drilling; poka-yoke sensor unplugged.",
+      "part": "C-7710-A",
+      "failureMode": "FM-06",
+      "supplier": "SUP-F",
+      "line": "L3",
+      "detectedDate": "2026-06-25"
+    },
+    {
+      "id": "NC-024",
+      "recordType": "NC",
+      "summary": "Missing hole",
+      "description": "Broken drill found in spindle.",
+      "part": "C-7710-A",
+      "failureMode": "FM-06",
+      "supplier": "SUP-F",
+      "line": "L3",
+      "detectedDate": "2026-07-10"
+    },
+    {
+      "id": "NC-027",
+      "recordType": "NC",
+      "summary": "Flash on mount",
+      "description": "Flash along parting line; mould wear.",
+      "part": "SM-6604-A",
+      "failureMode": "FM-02",
+      "supplier": "SUP-D",
+      "line": "L1",
+      "detectedDate": "2026-05-15"
+    },
+    {
+      "id": "NC-031",
+      "recordType": "NC",
+      "summary": "Bracket hole position",
+      "description": "Clamp worn again.",
+      "part": "B-4400",
+      "failureMode": "FM-03",
+      "supplier": "SUP-F",
+      "line": "L3",
+      "detectedDate": "2026-06-01"
+    },
+    {
+      "id": "NC-037",
+      "recordType": "NC",
+      "summary": "New part crack",
+      "description": "First-ever crack on a new part.",
+      "part": "X-9000-A",
+      "failureMode": "FM-01",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-06-01"
+    },
+    {
+      "id": "NC-043",
+      "recordType": "NC",
+      "summary": "Surface line on forging",
+      "description": "Logged as surface damage; lab later found a heat-treat crack.",
+      "part": "P-5120-A",
+      "failureMode": "FM-07",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-06-01"
+    },
+    {
+      "id": "NC-051",
+      "recordType": "NC",
+      "summary": "Burr rev B",
+      "description": "Shared trim die past regrind interval.",
+      "part": "P-5120-B",
+      "failureMode": "FM-02",
+      "supplier": "SUP-A",
+      "line": "L1",
+      "detectedDate": "2026-04-10"
+    },
+    {
+      "id": "NC-054",
+      "recordType": "NC",
+      "summary": "Scuff marks",
+      "description": "Parts scrapped before analysis; cause unknown.",
+      "part": "G-0930-A",
+      "failureMode": "FM-07",
+      "supplier": "SUP-D",
+      "line": "L2",
+      "detectedDate": "2026-09-25"
+    }
+  ]
+}

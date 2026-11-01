@@ -1,0 +1,11 @@
+{
+  "frozenAt": "2026-11-01",
+  "note": "SHA-256 of every dataset file. The scorer refuses to run if any file changed. The test split is kept outside the repository until final evaluation.",
+  "sha256": {
+    "corpus/capas.json": "b01053ba75830e579bf15774b8017ad938f52fd482f36a3cf5e601f4f24e1e03",
+    "dev/ncs.json": "6f115a8c2503dbe691513ba0dce17af5447be9ed6bfc816f4bb08ade0546e8fc",
+    "dev/labels.json": "d542d356d72bc75e5864766d2d3a198979e48d3e6c1cc4bdca71b8a5c6398e64",
+    "test/ncs.json": "01661495336ed82fd3fddc48ac6bf1f0acb99edcf7ee3bbe10d8bef5b3f3f72b",
+    "test/labels.json": "d559f7c58e9d1d7f3fa1492ef680468b3c5640dda45ed0ab9650124fc5bc965d"
+  }
+}
