@@ -1,5 +1,6 @@
 const { sampleDefinitions, removableSample, SAMPLE_LABEL, sampleCreationLines, selectSampleIssueType } = require('../sampleScenario');
 const { matchCaptures } = require('../match');
+const { buildCapture } = require('../capture');
 
 test('sample type prefers Task, otherwise the first non-subtask type in metadata order', () => {
   const subtask = { id: '1', name: 'Task', subtask: true };
@@ -31,6 +32,41 @@ test('the five isolated definitions preserve the required timeline and evidence'
     expect(capa.actionsTaken).toBeTruthy();
   }
   expect(sampleCreationLines(definitions).join(' ')).toContain('DEMO historical NC');
+});
+
+test.each(sampleDefinitions('2026-10-31'))('$name shares no supplier, line or part with non-DEMO values and cannot match them', ({ capture }) => {
+  for (const field of ['supplier', 'line', 'partOriginal', 'partNorm', 'partBase']) {
+    expect(capture[field]).toMatch(/^DEMO-/);
+    expect(capture[field]).not.toBe(capture[field].replace(/^DEMO-/, ''));
+  }
+  const partNumber = capture.partOriginal.replace(/^DEMO-/, '');
+  const sampleNc = { ...capture, recordType: 'NC', detectedDate: '2026-10-31' };
+  const sampleCapa = { ...capture, recordType: 'CAPA', closedDate: '2026-10-01' };
+  const noMatches = { strong: [], relatedRevision: [], otherRelated: [] };
+  // Exercise same part, different revision and different base, with both equal
+  // and different failure modes. Supplier/line keep their non-DEMO counterparts.
+  for (const realPart of [partNumber, partNumber.replace(/-[A-Z]$/, '-B'), 'REAL-9999-A']) {
+    for (const failureMode of [capture.failureMode, capture.failureMode === 'FM-01' ? 'FM-07' : 'FM-01']) {
+      const real = buildCapture({ recordType: 'CAPA', partNumber: realPart, failureMode,
+        supplier: capture.supplier.replace(/^DEMO-/, ''), line: capture.line.replace(/^DEMO-/, ''),
+        closedDate: '2026-10-01' });
+      for (const field of ['supplier', 'line', 'partOriginal', 'partNorm', 'partBase']) {
+        expect(capture[field]).not.toBe(real[field]);
+      }
+      expect(matchCaptures(sampleNc, [real])).toEqual(noMatches);
+      expect(matchCaptures({ ...real, recordType: 'NC', detectedDate: '2026-10-31' }, [sampleCapa])).toEqual(noMatches);
+    }
+  }
+});
+
+test('creation dialog lists the DEMO part, supplier and line for every sample record', () => {
+  const definitions = sampleDefinitions('2026-10-31');
+  const lines = sampleCreationLines(definitions);
+  definitions.forEach(({ capture }, index) => {
+    expect(lines[index]).toContain(`part ${capture.partOriginal}`);
+    expect(lines[index]).toContain(`supplier ${capture.supplier}`);
+    expect(lines[index]).toContain(`line ${capture.line}`);
+  });
 });
 
 test('sample removal requires BOTH the exact stored ID and current label', () => {

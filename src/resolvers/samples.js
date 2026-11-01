@@ -71,6 +71,7 @@ pageDefine(resolver, 'prepareSample', [], async (context) => {
   const plan = { projectId: project.id, issueTypeId: type.id, linkTypeId: link.id, definitions };
   return { token: await saveTicket('sample-plan', context, plan),
     lines: [`Create exactly five issues in ${project.key}, using issue type ${type.name}, each labelled ${SAMPLE_LABEL}.`,
+      'All sample part numbers, suppliers and lines use the DEMO- prefix to keep matches separate from non-DEMO data.',
       ...sampleCreationLines(definitions),
       'Link DEMO historical NC to DEMO CAPA-A using relates to.',
       'For each of the three sample CAPAs, attempt an available transition to a Done-category status. Leave its Jira status unchanged if no transition is available or Jira refuses it. Do not change workflows.',

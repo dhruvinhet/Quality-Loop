@@ -65,7 +65,7 @@ test('creation uses asUser current project/selected type and sets the property a
   const [path, options] = requestJira.mock.calls[1];
   expect(path).toBe('/rest/api/3/issue');
   expect(JSON.parse(options.body)).toMatchObject({ fields: { project: { id: '100' }, issuetype: { id: '5' }, labels: ['qualityloop-sample'] },
-    properties: [{ key: 'qualityloop', value: { partOriginal: 'DEMO-4471-A', recordType: 'CAPA' } }] });
+    properties: [{ key: 'qualityloop', value: { partOriginal: 'DEMO-4471-A', recordType: 'CAPA', supplier: 'DEMO-S-03', line: 'DEMO-L1' } }] });
   expect(storage.get('sample:100').items).toEqual([{ id: '20', key: 'QL-20' }]);
   expect(api.asApp).not.toHaveBeenCalled();
 });
@@ -78,6 +78,9 @@ test.each(['classic', 'next-gen'])('prepare uses creator metadata for a %s proje
     .mockResolvedValueOnce(response(200, { issueLinkTypes: [{ id: '2', inward: 'relates to', outward: 'relates to' }] }));
   const plan = await handler.prepareSample(req());
   expect(plan.lines[0]).toContain('using issue type Task');
+  expect(plan.lines).toContain('All sample part numbers, suppliers and lines use the DEMO- prefix to keep matches separate from non-DEMO data.');
+  expect(plan.lines.join(' ')).toContain('supplier DEMO-S-03, line DEMO-L1');
+  expect(plan.lines.join(' ')).toContain('supplier DEMO-S-05, line DEMO-L2');
   expect(storage.get(`sample-plan:${plan.token}`).issueTypeId).toBe('42');
   expect(requestJira.mock.calls.map(([path]) => path)).toEqual([
     '/rest/api/3/project/100',
