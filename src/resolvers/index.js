@@ -142,7 +142,7 @@ define('findHints', [], async (issueId) => {
         const issue = await response.json();
         const capture = issue.properties?.qualityloop;
         if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
-        return { ...capture, id: issue.id, key: issue.key };
+        return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary };
       }));
       candidates.push(...fresh.filter(Boolean));
     }

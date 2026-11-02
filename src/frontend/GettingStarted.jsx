@@ -30,7 +30,7 @@ export default function GettingStarted() {
   return <Stack space="space.200">
     <Heading size="small" as="h2">Getting started</Heading>
     <Text>1. Create sample scenario: open a Jira project, select QualityLoop, then Create sample scenario (5 issues). Review the listed writes and confirm.</Text>
-    <Text>2. Open the sample NC: follow a link below and open its qualityloop issue panel.</Text>
+    <Text>2. Open the sample NC: follow a link below and open its QualityLoop issue panel. If the panel is not shown, open it from the apps icon under the issue title.</Text>
     {state.loading && <Stack space="space.100"><Spinner label="Loading sample NC links" /><Text>Checking sample NC links you can browse. Please wait.</Text></Stack>}
     {state.error && <SectionMessage appearance="error"><Text>Sample NC links could not be loaded. Retry to check again.</Text></SectionMessage>}
     {state.keys.map((key) => <Text key={key}><Link href={`/browse/${encodeURIComponent(key)}`}>{`Open sample NC ${key}`}</Link></Text>)}

@@ -5,7 +5,7 @@ import EvidenceResults, { EvidenceHeading } from './EvidenceResults';
 import HintResults from './HintResults';
 import { excludeMatchedHints } from '../lib/hints';
 
-export default function MatchView({ refresh = 0, readOnly = false }) {
+export default function MatchView({ refresh = 0, readOnly = false, canEdit = !readOnly }) {
   const [state, setState] = useState({ loading: true });
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -36,7 +36,7 @@ export default function MatchView({ refresh = 0, readOnly = false }) {
     {state.refreshing && <Text>Searching closed CAPAs and refreshing decisions. Please wait before recording a decision.</Text>}
     {state.decisionsError && <SectionMessage appearance="error"><Text>{state.decisionsError}</Text></SectionMessage>}
     <Button isDisabled={state.refreshing} onClick={retry}>Refresh evidence and decisions</Button>
-    <EvidenceResults result={state.result} readOnly={readOnly} pairs={state.pairs}
+    <EvidenceResults result={state.result} readOnly={readOnly} canEdit={canEdit} pairs={state.pairs}
       decisionsReady={!state.refreshing && !state.decisionsError} onChanged={() => setRevision((value) => value + 1)} />
     <HintResults result={state.hints?.hints ? { ...state.hints,
       hints: excludeMatchedHints(state.hints.hints, state.result) } : state.hints} />

@@ -15,7 +15,7 @@ export default function HintResults({ result }) {
         {!result.hints.length && <Text>No hints found in the checked records.</Text>}
         {result.hints.map((hint) => <Box key={hint.id || hint.key} padding="space.200" backgroundColor="color.background.neutral">
           <Stack space="space.100">
-            <Text><Link href={`/browse/${encodeURIComponent(hint.key)}`}>{hint.key}</Link></Text>
+            <Text><Link href={`/browse/${encodeURIComponent(hint.key)}`}>{hint.key}</Link>{` ${hint.summary ?? ''}`}</Text>
             <Text>{`Part number (as stored): "${hint.partOriginal}"`}</Text>
             <Text>{`Failure mode (as stored): "${hint.failureMode}"`}</Text>
             <Text>{`QualityLoop closure date: ${hint.closedDate || 'not recorded'}`}</Text>

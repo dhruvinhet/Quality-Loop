@@ -24,13 +24,15 @@ test('transposition and stray space are hints without changing any match class o
   const current = Object.freeze({ ...nc });
   const before = matchCaptures(current, [candidate]);
   expect(selectHints(current, [candidate])).toEqual([expect.objectContaining({
-    id: '2', partOriginal: ' p-5210-a ', failureMode: ' fm-01 ', reason: 'Part number differs only slightly',
+    id: '2', partOriginal: ' p-5210-a ', failureMode: ' fm-01 ',
+    reason: 'Part number differs slightly: stored " p-5210-a ", this NC "P-5120-A"',
   })]);
   expect(matchCaptures(current, [candidate])).toEqual(before);
   expect(before.strong).toEqual([]);
   expect(before.relatedRevision).toEqual([]);
   const space = capa('3', { partNumber: 'SM-6604 -A' });
-  expect(selectHints({ ...nc, partOriginal: 'SM-6604-A' }, [space])[0].reason).toBe('Part number differs only slightly');
+  expect(selectHints({ ...nc, partOriginal: 'SM-6604-A' }, [space])[0].reason)
+    .toBe('Part number differs slightly: stored "SM-6604 -A", this NC "SM-6604-A"');
   expect(space.partOriginal).toBe('SM-6604 -A');
 });
 
@@ -60,7 +62,8 @@ test('at most three unique hints, priority slight part, missing date, older; old
   const selected = selectHints(nc, [...candidates, candidates[3]]);
   expect(selected.map(({ id }) => id)).toEqual(['5', '4', '3']);
   expect(selected.map(({ reason }) => reason)).toEqual([
-    'Part number differs only slightly', 'No closed date recorded', 'Older precedent',
+    'Part number differs slightly: stored "P-5210-A", this NC "P-5120-A"', 'No closed date recorded',
+    'Older precedent: closed 366 days before detection (outside the 365-day window)',
   ]);
   expect(selectHints(nc, [...candidates].reverse())).toEqual(selected);
   expect(selectHints(nc, candidates.slice(0, 2)).map(({ id }) => id)).toEqual(['3', '2']);
@@ -82,7 +85,8 @@ test('older precedent strictly exceeds 365 days and preserves original signature
   const candidates = [capa('2', { closedDate: '2025-10-31' }),
     capa('3', { partNumber: ' p-5120-a ', failureMode: ' fm-01 ', closedDate: '2025-10-30' })];
   expect(selectHints(nc, candidates)).toEqual([expect.objectContaining({
-    id: '3', reason: 'Older precedent', partOriginal: ' p-5120-a ', failureMode: ' fm-01 ',
+    id: '3', reason: 'Older precedent: closed 366 days before detection (outside the 365-day window)',
+    partOriginal: ' p-5120-a ', failureMode: ' fm-01 ',
   })]);
 });
 

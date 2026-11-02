@@ -62,7 +62,7 @@ function SamplePage() {
     });
   }
   return <Stack>
-    <Text>Create an optional, isolated sample for reviewing QualityLoop. This page shows sample data only.</Text>
+    <Text>Creates five labelled DEMO issues in this project. It never edits existing issues.</Text>
     <Button isDisabled={busy || !sample || sample.exists} onClick={() => run(async () => {
       const plan = await call('prepareSample');
       setDialog({ ...plan, kind: 'create', title: 'Create sample scenario (5 issues)' });
@@ -76,7 +76,7 @@ function SamplePage() {
     {sample?.notes?.map((note) => <Text key={note}>{note}</Text>)}
     {sample?.status === 'complete' && <Button isDisabled={busy} onClick={() => run(checkReady)}>Check sample readiness</Button>}
     {message && <Text>{message}</Text>}
-    {ready && <Text>Ready. Open <Link href={`/browse/${encodeURIComponent(ready.newNcKey)}`}>{ready.newNcKey}</Link> and look at QualityLoop: it should show a signature match with DEMO CAPA-B, and that CAPA-B has no effectiveness evidence recorded.</Text>}
+    {ready && <Text>Ready. Open <Link href={`/browse/${encodeURIComponent(ready.newNcKey)}`}>{ready.newNcKey}</Link> and look at QualityLoop: it should show a signature match with DEMO CAPA-B, and that CAPA-B has no effectiveness evidence recorded. If the panel is not shown, open it from the apps icon under the issue title.</Text>}
     {reports.map((report, index) => <Text key={index}>{report}</Text>)}
     {dialog && <PageConfirmation title={dialog.title} lines={dialog.lines} onCancel={() => setDialog(null)} onConfirm={confirm} />}
   </Stack>;

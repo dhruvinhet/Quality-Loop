@@ -50,13 +50,14 @@ export function selectHints(current, candidates) {
     let priority;
     if (validDate(closed) && closed >= start && closed < current.detectedDate &&
         part.partBase !== nc.partBase && differsByAtMostOneEdit(compact, compactPart(candidate.partOriginal))) {
-      reason = 'Part number differs only slightly'; priority = 0;
+      reason = `Part number differs slightly: stored "${candidate.partOriginal}", this NC "${current.partOriginal}"`; priority = 0;
     } else if (part.partNorm === nc.partNorm && (closed == null || closed === '')) {
       reason = 'No closed date recorded'; priority = 1;
     } else if (part.partNorm === nc.partNorm && validDate(closed) && closed < start) {
-      reason = 'Older precedent'; priority = 2;
+      const days = (Date.parse(`${current.detectedDate}T00:00:00Z`) - Date.parse(`${closed}T00:00:00Z`)) / 86400000;
+      reason = `Older precedent: closed ${days} days before detection (outside the 365-day window)`; priority = 2;
     } else continue;
-    hints.push({ id: String(candidate.id ?? ''), key: text(candidate.key),
+    hints.push({ id: String(candidate.id ?? ''), key: text(candidate.key), summary: text(candidate.summary),
       partOriginal: candidate.partOriginal, failureMode: candidate.failureMode,
       closedDate: closed ?? null, reason, priority });
   }

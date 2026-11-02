@@ -203,9 +203,14 @@ test('findHints uses separate capped enhanced searches and freshly reauthorised 
   });
   const result = await handler.findHints({ context });
   expect(result.hints.map(({ id, reason }) => [id, reason])).toEqual([
-    ['20002', 'Part number differs only slightly'], ['20003', 'No closed date recorded'], ['20004', 'Older precedent'],
+    ['20002', 'Part number differs slightly: stored "P-4741-A", this NC "P-4471-A"'],
+    ['20003', 'No closed date recorded'],
+    ['20004', 'Older precedent: closed 366 days before detection (outside the 365-day window)'],
   ]);
   expect(Object.keys(result)).toEqual(['applicable', 'hints']);
+  expect(result.hints.map(({ summary }) => summary)).toEqual([
+    'Fresh summary', 'Fresh summary', 'Fresh summary',
+  ]);
   expect(JSON.stringify(result)).not.toMatch(/STALE|999|total|count/i);
   const searches = requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql');
   expect(searches).toHaveLength(3);

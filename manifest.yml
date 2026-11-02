@@ -28,7 +28,7 @@ modules:
       resolver:
         function: resolver
       render: native
-      title: qualityloop
+      title: QualityLoop
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
   jira:issueContext:
     - key: qualityloop-evidence-context
@@ -36,7 +36,7 @@ modules:
       resolver:
         function: resolver
       render: native
-      title: QualityLoop evidence
+      title: QualityLoop
       label: QualityLoop evidence
   jira:entityPropertySet:
     - key: qualityloop-properties
