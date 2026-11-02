@@ -34,7 +34,7 @@ Decision explanations are appended rather than overwritten; follow-up metadata c
 3. When ready, open the linked new sample NC and click **Save** in its **qualityloop** issue panel, with Edit Issues permission.
 4. Review the evidence and any hints, then record a decision. The sample does not guarantee a hint will be shown.
 
-The repository's owner click/check sequence is in [T10.md](T10.md).
+The repository's owner click/check sequence is in [T10.md](docs/tasks/T10.md).
 
 ## Architecture
 
@@ -106,7 +106,7 @@ QualityLoop stores QualityLoop fields in Jira issue properties, and decisions in
 ## Development
 
 ```
-npm install
+npm ci
 npm test
 npm run eval:dev
 forge deploy -e development
@@ -115,4 +115,6 @@ forge install -e development --site <site>.atlassian.net --product jira
 
 Coding-agent rules are in [AGENTS.md](AGENTS.md).
 
-File-and-line evidence and every README correction are recorded in [T11.md](T11.md).
+File-and-line evidence and every README correction are recorded in [T11.md](docs/tasks/T11.md).
+
+Clean-install output, repository hygiene changes and stable dependency recommendations are recorded in [T13.md](docs/tasks/T13.md). Licensed under [MIT](LICENSE).
