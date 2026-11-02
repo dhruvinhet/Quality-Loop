@@ -63,25 +63,39 @@ export async function queryRecords(entity, index, partition, { limit = 50, capaI
   return { records, incomplete: !!cursor };
 }
 
-export async function pairConfirmed(pair, capaId, issueId, budget = loadBudget()) {
+export async function pairConfirmed(pair, capaId, issueId, budget = loadBudget(), knownHistory) {
   if (typeof pair.confirmed === 'boolean') return pair.confirmed;
   if (!pair.version) return false;
-  const history = await queryRecords(DECISION_ENTITY, 'by-issue', issueId, { capaId, limit: 100, budget });
+  const history = knownHistory ?? await queryRecords(DECISION_ENTITY, 'by-issue', issueId, { capaId, limit: 100, budget });
   if (pair.latestDecisionId && !history.records.some(({ id }) => id === pair.latestDecisionId)) {
     const latest = await budget.run(() => readDecision(pair.latestDecisionId));
     if (latest?.capaId === capaId && latest.issueId === issueId) history.records.push({ ...latest, id: pair.latestDecisionId });
   }
-  if (history.incomplete && !history.records.some(({ type }) => ['CONFIRM', 'NOT_RECURRENCE'].includes(type))) {
+  const ownHistory = history.records.filter((record) => record.capaId === capaId && record.issueId === issueId);
+  if (history.incomplete && !ownHistory.some(({ type }) => ['CONFIRM', 'NOT_RECURRENCE'].includes(type))) {
     throw new Error('Legacy confirmation history is incomplete. Retry after reviewing older decisions.');
   }
-  return confirmedFromHistory(history.records);
+  const confirmed = confirmedFromHistory(ownHistory);
+  budget.check();
+  try {
+    await kvs.transact().set(pairKey(capaId, issueId), { ...pair, capaId, issueId, confirmed }, {
+      entityName: PAIR_ENTITY, conditions: new Filter().and('version', FilterConditions.equalTo(pair.version))
+        .and('confirmed', FilterConditions.notExists()),
+    }).execute();
+  } catch (error) {
+    const current = await budget.run(() => getPairState(capaId, issueId));
+    if (typeof current.confirmed === 'boolean') return current.confirmed;
+    if (current.version !== pair.version) return pairConfirmed(current, capaId, issueId, budget);
+    throw error;
+  }
+  return confirmed;
 }
 
 // A durable claim prevents duplicate Jira tasks from repeated bridge calls.
 // There is no automatic retry after an ambiguous Jira response.
 export async function claimTask(id, decision) {
   const taskClaimId = randomUUID();
-  const claimed = { ...decision, taskClaimId };
+  const claimed = { ...decision, taskClaimId, taskClaimedAt: new Date().toISOString() };
   try {
     await kvs.transact().set(id, claimed, { entityName: DECISION_ENTITY,
       conditions: new Filter().and('taskClaimId', FilterConditions.notExists()) }).execute();
@@ -93,4 +107,16 @@ export async function claimTask(id, decision) {
   }
 }
 export const readDecision = (id) => kvs.entity(DECISION_ENTITY).get(id);
-export const saveTaskMetadata = (id, decision) => kvs.entity(DECISION_ENTITY).set(id, decision);
+export async function saveTaskMetadata(id, decision) {
+  try {
+    await kvs.transact().set(id, decision, { entityName: DECISION_ENTITY,
+      conditions: new Filter().and('taskClaimId', FilterConditions.equalTo(decision.taskClaimId))
+        .and('taskKey', FilterConditions.notExists()),
+    }).execute();
+    return true;
+  } catch (error) {
+    const current = await readDecision(id);
+    if (current?.taskClaimId !== decision.taskClaimId || current?.taskKey) return current?.taskKey === decision.taskKey;
+    throw error;
+  }
+}

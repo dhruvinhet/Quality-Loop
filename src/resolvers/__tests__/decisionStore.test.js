@@ -1,7 +1,7 @@
 jest.mock('@forge/kvs', () => ({ ...jest.requireActual('@forge/kvs'), kvs: { entity: jest.fn(), transact: jest.fn() } }));
 const { kvs } = require('@forge/kvs');
 const { TransactionBuilderImpl } = require('@forge/kvs/out/transaction-api');
-const { commitDecision, claimTask, queryRecords, pairConfirmed } = require('../decisionStore');
+const { commitDecision, claimTask, queryRecords, pairConfirmed, saveTaskMetadata } = require('../decisionStore');
 
 const payload = { capaId: '20002', expectedVersion: 0, type: 'CONFIRM', reason: 'Review evidence', evidenceLinks: [] };
 const args = { issueId: '10001', authorAccountId: 'server-account', payload, capa: {} };
@@ -94,10 +94,14 @@ test.each([
   [['SUPERSEDE', 'NOT_RECURRENCE', 'CONFIRM'], false],
   [['CONCERN'], false],
 ])('legacy pair derives confirmation from its own history %j', async (types, confirmed) => {
+  records.set('pair-state/20002:10001', { version: types.length });
   const query = mockQuery([{ results: types.map((type, index) => ({ key: `d${index}`, value: {
     type, capaId: '20002', issueId: '10001', createdAt: `2026-10-${String(31 - index).padStart(2, '0')}T00:00:00Z` } })) }]);
   expect(await pairConfirmed({ version: types.length }, '20002', '10001')).toBe(confirmed);
   expect(query.index).toHaveBeenCalledWith('by-issue', { partition: ['10001'] });
+  expect(records.get('pair-state/20002:10001')).toMatchObject({ confirmed, version: types.length });
+  expect(await pairConfirmed(records.get('pair-state/20002:10001'), '20002', '10001')).toBe(confirmed);
+  expect(query.getMany).toHaveBeenCalledTimes(1);
 });
 test('legacy preserving write puts derived confirmed in the same version-conditional transaction', async () => {
   records.set('pair-state/20002:10001', { version: 2, state: 'CONCERN_RAISED' });
@@ -138,4 +142,45 @@ test('follow-up can only be claimed once even across simultaneous requests', asy
   const result = await Promise.all([claimTask(id, decision), claimTask(id, decision)]);
   expect(result.filter(Boolean)).toHaveLength(1);
   expect(result.filter((r) => r === null)).toHaveLength(1);
+  expect(result.find(Boolean).taskClaimedAt).toEqual(expect.any(String));
+});
+
+test('legacy backfill is conditional on the observed version and missing flag', async () => {
+  const legacy = { version: 1, state: 'CONFIRMED', capaId: '20002', issueId: '10001' };
+  records.set('pair-state/20002:10001', legacy);
+  const knownHistory = { records: [{ id: 'd', type: 'CONFIRM', capaId: '20002', issueId: '10001', createdAt: '2026-10-21' }], incomplete: false };
+  expect(await pairConfirmed(legacy, '20002', '10001', undefined, knownHistory)).toBe(true);
+  expect(transact.mock.calls[0][0].set[0].conditions.and).toEqual([
+    { property: 'version', condition: 'EQUAL_TO', values: [1] },
+    { property: 'confirmed', condition: 'NOT_EXISTS', values: [true] },
+  ]);
+});
+
+test('a concurrent newer decision cannot be overwritten by legacy backfill', async () => {
+  const legacy = { version: 1, state: 'CONFIRMED' };
+  const newer = { version: 2, state: 'NOT_RECURRENCE', confirmed: false };
+  records.set('pair-state/20002:10001', newer);
+  const history = { records: [{ id: 'd', type: 'CONFIRM', capaId: '20002', issueId: '10001', createdAt: '2026-10-21' }], incomplete: false };
+  expect(await pairConfirmed(legacy, '20002', '10001', undefined, history)).toBe(false);
+  expect(records.get('pair-state/20002:10001')).toEqual(newer);
+});
+
+test('backfill reconciles a committed transaction whose response was lost', async () => {
+  const legacy = { version: 1, state: 'CONFIRMED' };
+  records.set('pair-state/20002:10001', legacy);
+  const atomic = transact.getMockImplementation();
+  transact.mockImplementation(async (request) => { await atomic(request); throw new Error('Response lost'); });
+  const history = { records: [{ id: 'd', type: 'CONFIRM', capaId: '20002', issueId: '10001', createdAt: '2026-10-21' }], incomplete: false };
+  expect(await pairConfirmed(legacy, '20002', '10001', undefined, history)).toBe(true);
+  expect(records.get('pair-state/20002:10001')).toMatchObject({ version: 1, confirmed: true });
+});
+
+test('task metadata cannot replace an already recorded task or another claim', async () => {
+  const existing = { type: 'CONCERN', taskClaimId: 'claim', taskKey: 'QL-3' };
+  records.set('decision/d', existing);
+  expect(await saveTaskMetadata('d', { ...existing, taskKey: 'QL-4' })).toBe(false);
+  expect(records.get('decision/d')).toEqual(existing);
+  expect(await saveTaskMetadata('d', existing)).toBe(true);
+  records.set('decision/d', { type: 'CONCERN', taskClaimId: 'different-claim' });
+  expect(await saveTaskMetadata('d', { ...existing, taskKey: 'QL-4' })).toBe(false);
 });

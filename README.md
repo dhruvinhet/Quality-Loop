@@ -14,9 +14,9 @@ QualityLoop presents possible recurrence evidence rather than declaring that a C
 |---|---|
 | **Capture** | An issue panel stores record type (NC or CAPA), part number, failure mode, supplier, line, dates and an effectiveness-evidence link in one issue property (`qualityloop`). |
 | **Match** | After a successful NC panel save, Jira is searched *as the viewing user*. Strong matches require the same normalised part number and failure mode, with a recorded QualityLoop closure date 1–365 days before detection; Jira status does not establish closure. An otherwise eligible different revision of the same base part is shown separately as a related revision. |
-| **Inspect** | Each card shows the matched fields, closure date, days since closure and whether effectiveness evidence was recorded. |
+| **Inspect** | Each card shows the matched fields, closure date, days since closure and whether effectiveness evidence was recorded. Strong and revision cards warn when Jira is outside the Done category. The most recent 25 of each class are displayed, with omitted visible matches disclosed. |
 | **Hints** | "Not matched — check these" can show up to three hints from limited searches: near-identical part numbers, CAPAs with no closed date and older precedents, with the same normalised failure mode. These are never treated as matches. |
-| **Decide** | The engineer records Engineer-confirmed recurrence, Not a recurrence (with a category) or Effectiveness concern. A follow-up task is created only after a confirmation dialog that lists it. |
+| **Decide** | The engineer records Engineer-confirmed recurrence, Not a recurrence (with a category) or Effectiveness concern. A follow-up task is created only after a confirmation dialog listing the task, link and intended CAPA assignee. An explicit assignee rejection falls back to unassigned. Interrupted follow-ups offer a search and a separate confirmation to recover a unique task key. |
 
 ### Decision states
 
@@ -26,6 +26,8 @@ QualityLoop presents possible recurrence evidence rather than declaring that a C
 - **Effectiveness concern:** allowed when the pair's current state is Engineer-confirmed recurrence, or when the CAPA has no effectiveness-evidence URL. It can create a re-review task after the user confirms the listed writes.
 
 Decision explanations are appended rather than overwritten; follow-up metadata can be updated and cleanup can delete records. This is not an immutable audit trail; no certification claim is made here.
+
+Decision loading uses at most five concurrent CAPA loads and shares issue, user and pair-state reads within each invocation. A legacy confirmation flag is persisted with a version condition when first derived. Follow-up recovery never creates another task; older claims without a recorded claim time require a manual Jira check. The side view still uses **Refresh evidence and decisions** after a panel change because UI Kit cross-module event emission could not be established from the Forge documentation. See [T15](docs/tasks/T15.md) for validation, simulated call counts, production dependency findings and the owner checklist.
 
 ## Try it
 

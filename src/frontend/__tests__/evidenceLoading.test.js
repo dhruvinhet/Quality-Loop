@@ -5,6 +5,7 @@ const React = require('react');
 const { invoke } = require('@forge/bridge');
 const MatchView = require('../MatchView').default;
 const EvidenceResults = require('../EvidenceResults').default;
+const { EvidenceCard } = require('../EvidenceResults');
 const DecisionDetails = require('../DecisionDetails').default;
 const nodes = (element) => element == null || typeof element === 'boolean' ? [] : Array.isArray(element) ? element.flatMap(nodes)
   : [element, ...(element.props ? nodes(element.props.children) : [])];
@@ -35,4 +36,34 @@ test('current distinct-NC count and capped history are labelled explicitly', () 
   } }));
   expect(tree).toContain('NCs currently confirmed as recurrences of this CAPA: 1 (may take a few seconds to update)');
   expect(tree).toContain('Older decisions not shown');
+});
+
+test.each(['strong', 'relatedRevision'])('non-Done %s card shows the exact closure consistency warning', (classification) => {
+  const match = { id: '2', key: 'QL-2', summary: 'CAPA', closedDate: '2026-10-21', status: 'Backlog', statusCategory: 'new',
+    supportingFacts: [], failureMode: 'FM-01', rootCause: '', actionsTaken: '' };
+  const tree = nodes(EvidenceCard({ match, classification }));
+  expect(tree).toContain('Recorded closure date 2026-10-21, but the Jira status is Backlog (not Done). Check whether this CAPA was reopened.');
+  expect(nodes(EvidenceCard({ match: { ...match, statusCategory: 'done' }, classification })).filter(({ type }) => type === 'SectionMessage')).toHaveLength(0);
+  expect(nodes(EvidenceCard({ match, classification: 'otherRelated' })).filter(({ type }) => type === 'SectionMessage')).toHaveLength(0);
+});
+
+test('each capped signature class discloses omitted visible search matches', () => {
+  const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
+    notShown: { strong: 7, relatedRevision: 3 } } }));
+  expect(tree).toContain('7 more not shown (most recent 25 displayed)');
+  expect(tree).toContain('3 more not shown (most recent 25 displayed)');
+});
+
+test('unconfirmed follow-up offers a check and makes no write by merely displaying history', async () => {
+  const tree = nodes(DecisionDetails({ match: { id: '2' }, readOnly: true, data: {
+    pairState: { version: 1, state: 'CONCERN_RAISED' }, history: [{ id: 'decision', type: 'CONCERN', reason: 'Review',
+      createdAt: '2026-10-21', authorDisplayName: 'Engineer', followupUnconfirmed: true }],
+  } }));
+  expect(tree).toContain('A follow-up was started but not confirmed.');
+  const button = tree.find((node) => node.type === 'Button' && node.props.children === 'Check for task');
+  expect(button).toBeDefined();
+  expect(invoke).not.toHaveBeenCalled();
+  invoke.mockResolvedValue({ message: 'No visible matching task' });
+  await button.props.onClick();
+  expect(invoke).toHaveBeenCalledWith('checkConcernTask', { capaId: '2', decisionId: 'decision' });
 });

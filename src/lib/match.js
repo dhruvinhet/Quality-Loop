@@ -39,7 +39,7 @@ export function matchCaptures(current, candidates, lookbackDays = defaultLookbac
     if (!classification) continue;
     classes[classification].push({
       id: String(candidate.id ?? ''), key: text(candidate.key), summary: text(candidate.summary),
-      status: text(candidate.status), ...part, failureMode: text(candidate.failureMode),
+      status: text(candidate.status), statusCategory: text(candidate.statusCategory), ...part, failureMode: text(candidate.failureMode),
       closedDate: candidate.closedDate,
       rootCause: text(candidate.rootCause), actionsTaken: text(candidate.actionsTaken),
       effectivenessEvidenceUrl: text(candidate.effectivenessEvidenceUrl),

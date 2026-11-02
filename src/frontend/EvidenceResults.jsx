@@ -14,7 +14,7 @@ export function EvidenceHeading() {
   </Stack>;
 }
 
-function EvidenceCard({ match, classification, data, readOnly, ready, onChanged }) {
+export function EvidenceCard({ match, classification, data, readOnly, ready, onChanged }) {
   const mode = FAILURE_MODES.find(({ value }) => value === match.failureMode)?.label ?? match.failureMode;
   const url = evidenceUrl(match.effectivenessEvidenceUrl);
   return <Box padding="space.200" backgroundColor="color.background.neutral">
@@ -26,6 +26,9 @@ function EvidenceCard({ match, classification, data, readOnly, ready, onChanged 
           ? `Related revision: part ${match.partOriginal}; failure mode ${mode}; different revision (${match.partRevision ?? 'not recorded'})`
           : `Related: part ${match.partOriginal}; failure mode ${mode}`}</Text>
       <Text>{`QualityLoop closure date: ${match.closedDate} · ${match.daysSinceClosure} days after closure`}</Text>
+      {classification !== 'otherRelated' && match.statusCategory !== 'done' && <SectionMessage appearance="warning">
+        <Text>{`Recorded closure date ${match.closedDate}, but the Jira status is ${match.status || 'unavailable'} (not Done). Check whether this CAPA was reopened.`}</Text>
+      </SectionMessage>}
       {url ? <Text>Effectiveness evidence: <Link href={url} openNewTab>View evidence</Link></Text>
         : <Text>No effectiveness evidence recorded at closure</Text>}
       <Text>{`Root cause: ${match.rootCause.trim() || 'not recorded'}`}</Text>
@@ -46,7 +49,7 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
     <EvidenceHeading />
     <Text>{canEdit === false ? 'Evidence matching needs a saved NC with a detected date. Open an NC, or ask someone with Edit Issues permission to complete its quality details.'
       : 'Evidence matching needs a saved NC with a detected date. Open an NC, complete its quality details and save to search closed CAPAs.'}</Text>
-    <HistoricalDecisions pairs={pairs} />
+    <HistoricalDecisions pairs={pairs} canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} />
   </Stack>;
   const { strong, relatedRevision, otherRelated } = result;
   return <Stack space="space.200">
@@ -62,9 +65,11 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
     </>}
     {strong.map((match) => <EvidenceCard key={match.id} match={match} classification="strong"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
+    {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more not shown (most recent 25 displayed)`}</Text>}
     {relatedRevision.map((match) => <EvidenceCard key={match.id} match={match} classification="relatedRevision"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
-    <HistoricalDecisions pairs={Object.fromEntries(Object.entries(pairs)
+    {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more not shown (most recent 25 displayed)`}</Text>}
+    <HistoricalDecisions canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} pairs={Object.fromEntries(Object.entries(pairs)
       .filter(([id]) => ![...strong, ...relatedRevision].some((match) => match.id === id)))} />
     {readOnly ? <Text>{`Other related records (${otherRelated.length})`}</Text>
       : <Button appearance="subtle" isSelected={showOther} onClick={() => setShowOther((value) => !value)}>{`Other related records (${otherRelated.length})`}</Button>}
@@ -72,12 +77,12 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
   </Stack>;
 }
 
-function HistoricalDecisions({ pairs }) {
+function HistoricalDecisions({ pairs, canRecover, onChanged }) {
   return <Stack space="space.200">{Object.entries(pairs).map(([id, data]) => <Box key={id} padding="space.200">
     <Stack space="space.100">
       <Text><Link href={`/browse/${encodeURIComponent(data.capaKey)}`}>{data.capaKey}</Link>{` ${data.capaSummary ?? ''}`}</Text>
       <Text>Earlier decision history; this CAPA is not in the current strong or related revision results.</Text>
-      <DecisionDetails match={{ id }} data={data} readOnly />
+      <DecisionDetails match={{ id }} data={data} readOnly canRecover={canRecover} onChanged={onChanged} />
     </Stack>
   </Box>)}</Stack>;
 }

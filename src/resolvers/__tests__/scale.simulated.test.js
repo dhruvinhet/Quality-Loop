@@ -14,6 +14,7 @@ const api = require('@forge/api').default;
 const { handler } = require('../index');
 const { loadBudget } = require('../loadBudget');
 const { findMatches } = require('../evidence');
+const store = require('../decisionStore');
 const context = { extension: { issue: { id: '1' } } };
 const nc = { schemaVersion: 2, recordType: 'NC', partOriginal: 'P-4471-A', supplier: 'Supplier', failureMode: 'FM-01', detectedDate: '2026-10-31' };
 const issue = (id, capture) => ({ id: String(id), key: `QL-${id}`, fields: { summary: 'Visible', status: { name: 'Done' } }, properties: { qualityloop: capture } });
@@ -58,8 +59,8 @@ afterEach(() => { jest.restoreAllMocks(); jest.useRealTimers(); });
 test.each([
   [0, 5, 0, 0, 0, false, false],
   [100, 85, 20, 20, 40, false, true],
-  [500, 248, 100, 100, 40, false, true],
-  [1000, 248, 100, 100, 40, true, true],
+  [500, 98, 25, 25, 40, false, true],
+  [1000, 98, 25, 25, 40, true, true],
 ])('SIMULATED %i CAPAs: %i Jira calls per unified load', async (n, calls, strong, revision, other, matchesIncomplete, otherRelatedIncomplete) => {
   seed(n);
   const result = await handler.loadEvidence({ context });
@@ -69,10 +70,40 @@ test.each([
   expect(result.otherRelated).toHaveLength(other);
   expect(result).toMatchObject({ matchesIncomplete, otherRelatedIncomplete, incomplete: false });
   expect(requestJira).toHaveBeenCalledTimes(calls);
+  expect(result.notShown).toEqual({ strong: n >= 500 ? 75 : 0, relatedRevision: n >= 500 ? 75 : 0 });
   for (const [path, options] of requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')) {
     expect(path).toBe('/rest/api/3/search/jql');
     expect(JSON.parse(options.body)).toMatchObject({ properties: ['qualityloop'], fields: ['summary', 'status'] });
   }
+});
+
+test('SIMULATED 25-card cap selects most recent closures before direct reads', async () => {
+  corpus = Array.from({ length: 60 }, (_, i) => issue(100 + i, { ...nc, recordType: 'CAPA',
+    partOriginal: i < 30 ? 'P-4471-A' : 'P-4471-B', closedDate: `2026-10-${String(i % 30 + 1).padStart(2, '0')}` }));
+  // Deliberately unsorted snapshots verify that the server selects by closedDate.
+  const result = await handler.loadEvidence({ context });
+  for (const kind of ['strong', 'relatedRevision']) {
+    expect(result[kind]).toHaveLength(25);
+    expect(result[kind][0].closedDate).toBe('2026-10-30');
+    expect(result[kind].at(-1).closedDate).toBe('2026-10-06');
+    expect(result.notShown[kind]).toBe(5);
+  }
+  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
+  expect(directIds).toHaveLength(51); // 50 displayed CAPAs + context NC
+  expect(directIds).not.toContain('100');
+  expect(directIds).not.toContain('130');
+});
+
+test('SIMULATED omitted signature cards are not fetched again through the historical-pair index', async () => {
+  seed(500);
+  store.queryRecords.mockImplementation(async (entity, index) => ({ records: entity === 'pair-state' && index === 'by-issue'
+    ? [{ capaId: '225', issueId: '1' }, { capaId: '226', issueId: '1' }] : [], incomplete: false }));
+  try {
+    const result = await handler.loadEvidence({ context });
+    expect(result.pairs['225']).toBeUndefined();
+    expect(result.pairs['226']).toBeUndefined();
+    expect(requestJira.mock.calls.some(([path]) => /issue\/(225|226)\?/.test(path))).toBe(false);
+  } finally { store.queryRecords.mockImplementation(async () => ({ records: [], incomplete: false })); }
 });
 
 test.each([403, 404])('SIMULATED hidden search records and revoked cards (%i) disclose no evidence or totals', async (status) => {
@@ -89,6 +120,17 @@ test('SIMULATED cards that changed classification are dropped, never moved into 
   changed.set('100', issue(100, { ...corpus[0].properties.qualityloop, partOriginal: 'P-4471-B' }));
   const result = await handler.loadEvidence({ context });
   expect([...result.strong, ...result.relatedRevision].some(({ id }) => id === '100')).toBe(false);
+});
+
+test('SIMULATED cards use the fresh Jira status category while matching on recorded closure', async () => {
+  seed(5);
+  for (const id of ['100', '101']) {
+    const row = corpus.find((item) => item.id === id);
+    changed.set(id, { ...row, fields: { ...row.fields, status: { name: 'Backlog', statusCategory: { key: 'new' } } } });
+  }
+  const result = await handler.loadEvidence({ context });
+  expect(result.strong[0]).toMatchObject({ id: '100', status: 'Backlog', statusCategory: 'new', closedDate: '2026-10-01' });
+  expect(result.relatedRevision[0]).toMatchObject({ id: '101', status: 'Backlog', statusCategory: 'new', closedDate: '2026-10-01' });
 });
 
 test.each([429, 500, 503])('SIMULATED HTTP %i maps to busy/retry with no retry loop', async (status) => {
@@ -125,7 +167,7 @@ test('SIMULATED time budget keeps only completed verified batches and stops issu
   const read = requestJira.getMockImplementation();
   requestJira.mockImplementation(async (...args) => {
     const result = await read(...args);
-    if (args[0].includes('/issue/111?')) clock = 15001;
+    if (args[0].includes('/issue/125?')) clock = 15001;
     return result;
   });
   const result = await findMatches('1', loadBudget());

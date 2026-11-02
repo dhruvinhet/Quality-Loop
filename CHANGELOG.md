@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 2026-11-03
+
+- Warn when a recorded CAPA closure conflicts with its current Jira status category, preserving the recorded-date matching rules. Display the newest 25 strong and 25 related-revision matches and disclose additional visible search matches.
+- Confirm the intended follow-up assignee, attempt assignment at creation, and fall back to unassigned only after an explicit assignee validation rejection. Add read-only task discovery and separately confirmed recovery for unconfirmed claims; never automatically create another task.
+- Persist derived legacy confirmation flags with version conditions, load at most five CAPA decision views concurrently, and share invocation reads. The 3-CAPA / 15-decision simulation reduces storage reads from 16 to 10 per load.
+- Pin stable Forge React 12.4.0, bridge 7.2.1 and resolver 2.0.2; regenerate the lockfile and report the production-only audit and local bundle reachability. Add the decision `taskClaimedAt` string attribute without new scopes. See [T15](docs/tasks/T15.md) for limitations and owner checks.
+
 ## Unreleased — 2026-11-02
 
 - Bound evidence retrieval to 200 signature candidates and 20 candidates per other-related query, classify search properties and reauthorize only returned cards, and disclose caps and the 15-second load budget.

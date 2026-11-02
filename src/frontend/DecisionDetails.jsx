@@ -36,7 +36,7 @@ function DecisionModal({ type, onClose, onSubmit, busy, error }) {
   </Modal>;
 }
 
-export default function DecisionDetails({ match, data, readOnly, ready, onChanged }) {
+export default function DecisionDetails({ match, data, readOnly, canRecover = !readOnly, ready, onChanged }) {
   const [type, setType] = useState(null);
   const [expectedVersion, setExpectedVersion] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -44,6 +44,8 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
   const [message, setMessage] = useState('');
   const [modalError, setModalError] = useState('');
   const [followup, setFollowup] = useState(null);
+  const [recovery, setRecovery] = useState(null);
+  const [checkedTask, setCheckedTask] = useState(null);
   const [local, setLocal] = useState(null);
   const pairState = local && (!data || local.version > data.pairState.version) ? local : data?.pairState;
   const open = (value) => {
@@ -83,6 +85,29 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
     } catch { setMessage('Recorded. Follow-up response was interrupted. Check Jira before creating another task.'); }
     finally { setFollowup(null); busyRef.current = false; setBusy(false); onChanged(); }
   };
+  const checkTask = async (decisionId) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setMessage(''); setCheckedTask(null);
+    try {
+      const result = await invoke('checkConcernTask', { capaId: match.id, decisionId });
+      if (result?.task) {
+        setCheckedTask(result.task);
+        if (canRecover) setRecovery({ ...result, decisionId });
+        else setMessage('One visible task was found. Open the QualityLoop panel to confirm recording its key.');
+      } else setMessage(result?.message || result?.error || 'The task search is unavailable with your current issue access.');
+    } catch { setMessage('The task search could not finish. Check again later; another task will not be created.'); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const confirmTask = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    try {
+      const result = await invoke('confirmConcernTask', { capaId: match.id, decisionId: recovery.decisionId,
+        taskId: recovery.task.id, confirmation: recovery.confirmation });
+      setMessage(result?.message || result?.error || 'Recovery is unavailable with your current issue access.');
+    } catch { setMessage('The recovery response was interrupted. Refresh history before confirming again.'); }
+    finally { setRecovery(null); busyRef.current = false; setBusy(false); onChanged(); }
+  };
   const eligible = data?.concernAllowed ?? (pairState?.state === 'CONFIRMED' || !match.effectivenessEvidenceUrl?.trim());
   return <Stack space="space.100">
     <Text><Lozenge>{pairState ? STATE_LABELS[pairState.state] : 'Decision state unavailable'}</Lozenge></Text>
@@ -96,6 +121,7 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
       {!!pairState?.version && <Button isDisabled={!ready || busy} onClick={() => open('SUPERSEDE')}>Correct explanation</Button>}
     </>}
     {message && <Text>{message}</Text>}
+    {checkedTask && <Text>Found task: <Link href={`/browse/${encodeURIComponent(checkedTask.key)}`}>{checkedTask.key}</Link></Text>}
     <Text>Decision history</Text>
     {data?.historyIncomplete && <Text>Older decisions not shown</Text>}
     {data && !data.history.length && <Text>No decisions recorded.</Text>}
@@ -105,6 +131,10 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
       {item.reasonCategory && <Text>{`Category: ${item.reasonCategory.toLowerCase().replaceAll('_', ' ')}`}</Text>}
       {(item.evidenceLinks ?? []).filter(validEvidenceUrl).map((url, i) => <Text key={`${i}:${url}`}><Link href={url} openNewTab>{url}</Link></Text>)}
       {item.taskKey && <Text>Re-review task: <Link href={`/browse/${encodeURIComponent(item.taskKey)}`}>{item.taskKey}</Link></Text>}
+      {item.followupUnconfirmed && <>
+        <Text>A follow-up was started but not confirmed.</Text>
+        <Button isDisabled={busy} onClick={() => checkTask(item.id)}>Check for task</Button>
+      </>}
     </Stack>)}
     <ModalTransition>
       {type && <DecisionModal key={type} type={type} onClose={() => setType(null)} onSubmit={record} busy={busy} error={modalError} />}
@@ -113,6 +143,14 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
         <ModalBody><Stack space="space.100"><Text>The concern is recorded. Confirm these Jira writes:</Text><Text>{followup.confirmation}</Text></Stack></ModalBody>
         <ModalFooter><Button isDisabled={busy} onClick={() => setFollowup(null)}>Keep decision only</Button>
           <Button appearance="primary" isDisabled={busy} onClick={createTask}>{busy ? 'Creating…' : 'Create task and link'}</Button></ModalFooter>
+      </Modal>}
+      {recovery && <Modal onClose={() => { if (!busy) setRecovery(null); }}>
+        <ModalHeader><ModalTitle>Confirm follow-up recovery</ModalTitle></ModalHeader>
+        <ModalBody><Stack space="space.100"><Text>{recovery.confirmation}</Text>
+          <Text><Link href={`/browse/${encodeURIComponent(recovery.task.key)}`}>{recovery.task.key}</Link></Text>
+        </Stack></ModalBody>
+        <ModalFooter><Button isDisabled={busy} onClick={() => setRecovery(null)}>Cancel</Button>
+          <Button appearance="primary" isDisabled={busy} onClick={confirmTask}>Confirm task key</Button></ModalFooter>
       </Modal>}
     </ModalTransition>
   </Stack>;

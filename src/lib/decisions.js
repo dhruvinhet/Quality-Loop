@@ -71,6 +71,7 @@ export function confirmedFromHistory(history) {
     .find(({ type }) => ['CONFIRM', 'NOT_RECURRENCE'].includes(type));
   return decisive ? decisive.type === 'CONFIRM' : false;
 }
-export function followupConfirmation(project, capaKey) {
-  return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}`;
+export function followupConfirmation(project, capaKey, assignee) {
+  const intended = assignee?.accountId ? `${assignee.displayName || 'CAPA assignee'} (${assignee.accountId})` : 'unassigned';
+  return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}. Intended assignee: ${intended}. If Jira rejects the assignee, create unassigned.`;
 }

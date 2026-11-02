@@ -4,11 +4,12 @@ import { claimTask, commitDecision, getPairState, queryRecords, pairConfirmed, P
 import { matchCaptures } from '../lib/match';
 import { issueCapture } from './evidence';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
+import { isRecoveryTask, recoveryConfirmation, recoveryJql } from '../lib/followup';
 
 const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
 async function getIssue(id) {
   const response = await api.asUser().requestJira(
-    route`/rest/api/3/issue/${id}?fields=summary,project&properties=qualityloop`, { headers });
+    route`/rest/api/3/issue/${id}?fields=summary,project,status,assignee,created&properties=qualityloop`, { headers });
   if ([403, 404].includes(response.status)) return null;
   checkJira(response);
   return response.json();
@@ -64,60 +65,80 @@ export function registerDecisionResolvers({ define, findMatches }) {
     return commitDecision({ issueId, authorAccountId, payload, capa });
   });
 
-  async function loadDecisionView(issueId, matches, budget, authorised) {
+  async function loadDecisionView(issueId, matches, budget, authorised, undisplayed) {
     const pairs = {};
     let incomplete = false;
     try {
-      const readIssue = async (id) => {
-        if (!authorised.has(id)) authorised.set(id, await budget.run(() => getIssue(id)));
+      // Cache promises before awaiting: concurrent CAPAs share in-flight reads,
+      // including denials. These caches last for this invocation only.
+      const readIssue = (id) => {
+        if (!authorised.has(id)) authorised.set(id, budget.run(() => getIssue(id)));
         return authorised.get(id);
+      };
+      const states = new Map();
+      const readPair = (capaId, ncId) => {
+        const key = pairKey(capaId, ncId);
+        if (!states.has(key)) states.set(key, budget.run(() => getPairState(capaId, ncId)));
+        return states.get(key);
       };
       if (!await readIssue(issueId)) return null;
       const indexed = await queryRecords(PAIR_ENTITY, 'by-issue', issueId, { budget });
       incomplete = indexed.incomplete;
       const ids = new Set([...(matches.strong ?? []), ...(matches.relatedRevision ?? [])].map(({ id }) => id));
-      for (const pair of indexed.records) if (pair.issueId === issueId && validIssueId(pair.capaId)) ids.add(pair.capaId);
+      for (const pair of indexed.records) if (pair.issueId === issueId && validIssueId(pair.capaId) && !undisplayed.has(pair.capaId)) ids.add(pair.capaId);
       const names = new Map();
-      for (const capaId of ids) {
-        const capa = await readIssue(capaId);
-        if (!capa) continue;
-        const pairState = await budget.run(() => getPairState(capaId, issueId));
-        const page = await queryRecords(DECISION_ENTITY, 'by-issue', issueId, { capaId, limit: 51, budget });
-        let history = page.records.filter((record) => record.capaId === capaId && record.issueId === issueId);
-        if (pairState.latestDecisionId && !history.some(({ id }) => id === pairState.latestDecisionId)) {
-          const latest = await budget.run(() => readDecision(pairState.latestDecisionId));
-          if (latest?.issueId === issueId && latest.capaId === capaId) history.push({ ...latest, id: pairState.latestDecisionId });
-        }
-        const historyIncomplete = page.incomplete || history.length > 50;
-        history = history.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, 50);
-        const countPage = await queryRecords(PAIR_ENTITY, 'by-capa', capaId, { limit: 51, budget });
-        let confirmedCount = 0;
-        let confirmedCountIncomplete = countPage.incomplete;
-        const seen = new Set();
-        for (const record of countPage.records) {
-          if (record.capaId !== capaId || !validIssueId(record.issueId) || seen.has(record.issueId)) continue;
-          seen.add(record.issueId);
-          if (!await readIssue(record.issueId)) continue;
-          // Indexes discover pairs; direct state reads decide their current status.
-          const state = await budget.run(() => getPairState(capaId, record.issueId));
-          try { if (await pairConfirmed(state, capaId, record.issueId, budget)) confirmedCount += 1; }
-          catch (error) {
-            if (error instanceof BudgetExceeded) throw error;
-            confirmedCountIncomplete = true;
+      const capaIds = [...ids];
+      for (let offset = 0; offset < capaIds.length; offset += 5) {
+        budget.check();
+        // Wait for the whole bounded batch, including on a timeout, so no work
+        // can publish late results after this invocation has returned.
+        const batch = await Promise.allSettled(capaIds.slice(offset, offset + 5).map(async (capaId) => {
+          const capa = await readIssue(capaId);
+          if (!capa) return;
+          const pairState = await readPair(capaId, issueId);
+          const page = await queryRecords(DECISION_ENTITY, 'by-issue', issueId, { capaId, limit: 51, budget });
+          let history = page.records.filter((record) => record.capaId === capaId && record.issueId === issueId);
+          if (pairState.latestDecisionId && !history.some(({ id }) => id === pairState.latestDecisionId)) {
+            const latest = await budget.run(() => readDecision(pairState.latestDecisionId));
+            if (latest?.issueId === issueId && latest.capaId === capaId) history.push({ ...latest, id: pairState.latestDecisionId });
           }
-        }
-        const publicHistory = [];
-        for (const record of history) {
-          if (!names.has(record.authorAccountId)) names.set(record.authorAccountId, await budget.run(() => displayName(record.authorAccountId)));
-          let taskKey;
-          if (record.taskKey && await readIssue(record.taskKey)) taskKey = record.taskKey;
-          publicHistory.push({ id: record.id, type: record.type, reason: record.reason,
-            reasonCategory: record.reasonCategory, evidenceLinks: record.evidenceLinks,
-            createdAt: record.createdAt, authorDisplayName: names.get(record.authorAccountId), ...(taskKey ? { taskKey } : {}) });
-        }
-        pairs[capaId] = { pairState, history: publicHistory, historyIncomplete,
-          confirmedCount: confirmedCount > 50 ? '50+' : confirmedCount, confirmedCountIncomplete,
-          concernAllowed: concernAllowed(pairState, capa.properties?.qualityloop), capaKey: capa.key, capaSummary: capa.fields?.summary };
+          const knownHistory = !page.incomplete ? { records: [...history], incomplete: false } : undefined;
+          const historyIncomplete = page.incomplete || history.length > 50;
+          history = history.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, 50);
+          const countPage = await queryRecords(PAIR_ENTITY, 'by-capa', capaId, { limit: 51, budget });
+          let confirmedCount = 0;
+          let confirmedCountIncomplete = countPage.incomplete;
+          const seen = new Set();
+          for (const record of countPage.records) {
+            if (record.capaId !== capaId || !validIssueId(record.issueId) || seen.has(record.issueId)) continue;
+            seen.add(record.issueId);
+            if (!await readIssue(record.issueId)) continue;
+            // Indexes discover pairs; direct state reads decide their current status.
+            const state = await readPair(capaId, record.issueId);
+            try { if (await pairConfirmed(state, capaId, record.issueId, budget, record.issueId === issueId ? knownHistory : undefined)) confirmedCount += 1; }
+            catch (error) {
+              if (error instanceof BudgetExceeded) throw error;
+              confirmedCountIncomplete = true;
+            }
+          }
+          const publicHistory = [];
+          for (const record of history) {
+            if (!names.has(record.authorAccountId)) names.set(record.authorAccountId, budget.run(() => displayName(record.authorAccountId)));
+            const authorDisplayName = await names.get(record.authorAccountId);
+            let taskKey;
+            if (record.taskKey && await readIssue(record.taskKey)) taskKey = record.taskKey;
+            publicHistory.push({ id: record.id, type: record.type, reason: record.reason,
+              reasonCategory: record.reasonCategory, evidenceLinks: record.evidenceLinks,
+              createdAt: record.createdAt, authorDisplayName, ...(taskKey ? { taskKey } : {}),
+              ...(record.taskClaimId && !record.taskKey ? { followupUnconfirmed: true } : {}) });
+          }
+          budget.check();
+          pairs[capaId] = { pairState, history: publicHistory, historyIncomplete,
+            confirmedCount: confirmedCount > 50 ? '50+' : confirmedCount, confirmedCountIncomplete,
+            concernAllowed: concernAllowed(pairState, capa.properties?.qualityloop), capaKey: capa.key, capaSummary: capa.fields?.summary };
+        }));
+        const failure = batch.find((item) => item.status === 'rejected');
+        if (failure) throw failure.reason;
       }
     } catch (error) {
       if (!(error instanceof BudgetExceeded)) throw error;
@@ -128,9 +149,10 @@ export function registerDecisionResolvers({ define, findMatches }) {
   async function loadEvidence(issueId) {
     const budget = loadBudget();
     const authorised = new Map();
-    const matches = await findMatches(issueId, budget, authorised);
+    const undisplayed = new Set();
+    const matches = await findMatches(issueId, budget, authorised, undisplayed);
     if (!matches || matches.error) return matches;
-    const decisions = await loadDecisionView(issueId, matches, budget, authorised);
+    const decisions = await loadDecisionView(issueId, matches, budget, authorised, undisplayed);
     if (!decisions) return null;
     return { ...matches, pairs: decisions.pairs, decisionsIncomplete: decisions.incomplete,
       incomplete: !!matches.incomplete || decisions.incomplete };
@@ -141,7 +163,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
     const result = await loadEvidence(issueId);
     return result && !result.error ? { pairs: result.pairs, incomplete: result.incomplete } : result;
   });
-  async function taskContext(issueId, payload, context) {
+  async function taskContext(issueId, payload, context, recovery = false) {
     if (!validIssueId(payload.capaId)) return null;
     const prefix = `${pairKey(payload.capaId, issueId)}:`;
     if (typeof payload.decisionId !== 'string' || !payload.decisionId.startsWith(prefix) || payload.decisionId.length > 160) return null;
@@ -150,17 +172,96 @@ export function registerDecisionResolvers({ define, findMatches }) {
     if (!await canEdit(issueId)) return deniedEdit();
     const decision = await readDecision(payload.decisionId);
     if (!decision || decision.type !== 'CONCERN' || decision.capaId !== payload.capaId ||
-        decision.issueId !== issueId || decision.authorAccountId !== context?.accountId) return null;
+        decision.issueId !== issueId || (!recovery && decision.authorAccountId !== context?.accountId)) return null;
     const project = capa.fields?.project;
     if (!project?.id || !project.key) return { error: 'Recorded. The CAPA project could not be read.' };
+    if (recovery) {
+      if (!decision.taskClaimId || decision.taskKey) return { message: 'Refresh history; this concern no longer has an unconfirmed follow-up.' };
+      if (!Number.isFinite(Date.parse(decision.taskClaimedAt))) {
+        return { message: 'The follow-up claim time was not recorded for this older decision. Check Jira manually; another task will not be created.' };
+      }
+      return { capa, decision, project };
+    }
     if (decision.taskClaimId) return { message: 'Recorded. Follow-up was already attempted; check the history and Jira before creating another task.' };
     if (!await canCreate(project.id)) return { message: noCreateMessage(project.key) };
-    return { capa, decision, project, confirmation: followupConfirmation(project.key, capa.key) };
+    return { capa, decision, project, confirmation: followupConfirmation(project.key, capa.key, capa.fields?.assignee) };
   }
   define('prepareConcernTask', ['capaId', 'decisionId'], async (issueId, payload, context) => {
     const result = await taskContext(issueId, payload, context);
     if (!result || result.error || result.message) return result;
     return { confirmation: result.confirmation };
+  });
+
+  async function searchRecovery({ capa, decision, project }) {
+    const budget = loadBudget();
+    const found = new Map();
+    let token;
+    let fetched = 0;
+    const seen = new Set();
+    for (let pages = 0; pages < 10; pages++) {
+      const response = await budget.run(() => api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST', headers, body: JSON.stringify({
+          jql: recoveryJql(project.id, capa.key, decision.taskClaimedAt), maxResults: Math.min(50, 200 - fetched),
+          fields: ['summary', 'project', 'created', 'status'], ...(token ? { nextPageToken: token } : {}),
+        }),
+      }));
+      if ([403, 404].includes(response.status)) return null;
+      checkJira(response);
+      const page = await budget.run(() => response.json());
+      const rows = (page.issues ?? []).slice(0, 200 - fetched);
+      fetched += rows.length;
+      const selected = rows.filter((row) => {
+        const id = String(row.id);
+        if (!validIssueId(id) || seen.has(id)) return false;
+        seen.add(id);
+        return isRecoveryTask(row, project.id, capa.key, decision.taskClaimedAt);
+      });
+      for (let offset = 0; offset < selected.length; offset += 5) {
+        const fresh = await Promise.all(selected.slice(offset, offset + 5).map((row) => budget.run(() => getIssue(String(row.id)))));
+        for (const task of fresh) if (isRecoveryTask(task, project.id, capa.key, decision.taskClaimedAt)) found.set(String(task.id), task);
+      }
+      if (found.size > 1) return { message: 'More than one visible matching task was found. Check Jira manually; no task key was recorded and another task will not be created.' };
+      const more = page.isLast !== true && (!!page.nextPageToken || page.isLast === false);
+      if (!more) {
+        const task = [...found.values()][0];
+        return task ? { task: { id: String(task.id), key: task.key }, confirmation: recoveryConfirmation(task.key, capa.key) }
+          : { message: 'No visible matching task was found. Jira indexing may be delayed; check again later or inspect Jira manually. Another task will not be created.' };
+      }
+      token = page.nextPageToken;
+      if (!token || fetched >= 200) break;
+    }
+    return { message: 'The visible task search is incomplete. Check Jira manually; no task key was recorded and another task will not be created.' };
+  }
+
+  define('checkConcernTask', ['capaId', 'decisionId'], async (issueId, payload, context) => {
+    const result = await taskContext(issueId, payload, context, true);
+    if (!result || result.error || result.message) return result;
+    try { return await searchRecovery(result); }
+    catch (error) {
+      if (!(error instanceof BudgetExceeded)) throw error;
+      return { message: 'The task search timed out. Check again later; another task will not be created.' };
+    }
+  });
+
+  define('confirmConcernTask', ['capaId', 'decisionId', 'taskId', 'confirmation'], async (issueId, payload, context) => {
+    if (!validIssueId(payload.taskId) || !await getIssue(payload.taskId)) return null;
+    const result = await taskContext(issueId, payload, context, true);
+    if (!result || result.error || result.message) return result;
+    const proposal = await searchRecovery(result);
+    if (!proposal || proposal.message) return proposal;
+    if (proposal.task.id !== payload.taskId || proposal.confirmation !== payload.confirmation) {
+      return { error: 'The proposed recovery changed. Check for task again before confirming.' };
+    }
+    // Re-check visibility immediately before recording the key. No Jira write.
+    const task = await getIssue(payload.taskId);
+    if (!task || !await getIssue(payload.capaId) || !await getIssue(issueId)) return null;
+    if (!isRecoveryTask(task, result.project.id, result.capa.key, result.decision.taskClaimedAt) || task.key !== proposal.task.key) {
+      return { error: 'The task changed. Check for task again before confirming.' };
+    }
+    if (!await canEdit(issueId)) return deniedEdit();
+    const saved = await saveTaskMetadata(payload.decisionId, { ...result.decision, taskKey: task.key });
+    return saved ? { message: `Recorded ${task.key} as the follow-up task.`, taskKey: task.key }
+      : { error: 'The follow-up metadata changed. Refresh history before continuing.' };
   });
 
   define('createConcernTask', ['capaId', 'decisionId', 'confirmation'], async (issueId, payload, context) => {
@@ -197,28 +298,44 @@ export function registerDecisionResolvers({ define, findMatches }) {
       if (freshCapa.fields?.project?.id !== project.id || freshCapa.key !== capa.key) {
         return { error: 'Recorded. The CAPA project or key changed. Open a new follow-up confirmation.' };
       }
+      if (followupConfirmation(project.key, capa.key, freshCapa.fields?.assignee) !== confirmation) {
+        return { error: 'Recorded. The intended assignee changed. Open a new follow-up confirmation.' };
+      }
       if (!await canEdit(issueId)) return deniedEdit();
       if (!await canCreate(project.id)) return { message: noCreateMessage(project.key) };
       claimed = await claimTask(payload.decisionId, decision);
       if (!claimed) return { message: 'Recorded. Follow-up was already attempted; check Jira before creating another task.' };
-      const response = await api.asUser().requestJira(route`/rest/api/3/issue`, {
-        method: 'POST', headers, body: JSON.stringify({ fields: {
-          project: { id: project.id }, issuetype: { id: taskType.id }, summary: `Effectiveness re-review: ${capa.key}`,
-        } }),
+      const intendedAssignee = freshCapa.fields?.assignee;
+      const fields = { project: { id: project.id }, issuetype: { id: taskType.id }, summary: `Effectiveness re-review: ${capa.key}`,
+        assignee: intendedAssignee?.accountId ? { accountId: intendedAssignee.accountId } : null };
+      const create = () => api.asUser().requestJira(route`/rest/api/3/issue`, {
+        method: 'POST', headers, body: JSON.stringify({ fields }),
       });
+      let response = await create();
+      // Retry only a definitive validation rejection of assignee. Never retry
+      // an ambiguous response, transport error, 429, 5xx, or a general denial.
+      if (response.status === 400 && intendedAssignee?.accountId) {
+        const rejected = await response.json();
+        if (rejected.errors?.assignee) { fields.assignee = null; response = await create(); }
+      }
       if ([403, 404].includes(response.status)) return null;
       if (!response.ok) return { error: `Recorded. Task creation returned HTTP ${response.status}. Check Jira before trying another follow-up.` };
       const task = await response.json();
       taskKey = task.key;
-      await saveTaskMetadata(payload.decisionId, { ...claimed, taskKey });
+      if (await saveTaskMetadata(payload.decisionId, { ...claimed, taskKey }) === false) {
+        return { error: 'Recorded. Follow-up metadata changed. Check the decision history before continuing.' };
+      }
       // The server-generated task ID is still checked asUser before linking.
-      if (!await getIssue(task.id) || !await getIssue(payload.capaId)) return null;
+      const createdTask = await getIssue(task.id);
+      if (!createdTask || !await getIssue(payload.capaId)) return null;
       const linked = await api.asUser().requestJira(route`/rest/api/3/issueLink`, {
         method: 'POST', headers, body: JSON.stringify({ type: { id: linkType.id },
           outwardIssue: { id: task.id }, inwardIssue: { id: capa.id } }),
       });
       if (!linked.ok) return { error: 'Recorded. Follow-up linking could not finish. Check Jira before creating another task.' };
-      return { message: `Recorded. Created ${taskKey} and linked it to ${capa.key}.` };
+      const assignee = createdTask.fields?.assignee;
+      const ownership = assignee?.accountId ? `assigned to ${assignee.displayName || assignee.accountId}` : 'unassigned';
+      return { message: `Recorded. Created ${taskKey} and linked it to ${capa.key}; ${ownership}.` };
     } catch {
       console.error('QualityLoop concern follow-up failed.');
       return { error: 'Recorded. Follow-up could not finish. Check Jira before creating another task.' };

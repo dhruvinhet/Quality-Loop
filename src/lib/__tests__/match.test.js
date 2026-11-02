@@ -15,6 +15,12 @@ test('strong exact with elapsed days and listed supporting facts', () => {
   expect(classify(capa()).strong[0]).toMatchObject({ daysSinceClosure: 30,
     supportingFacts: ['Same supplier: Supplier 1', 'Same line: Line 1'] });
 });
+
+test.each(['new', 'indeterminate', 'done'])('Jira category %s remains evidence only; recorded closedDate determines matching', (statusCategory) => {
+  const candidate = capa({ closedDate: '2026-10-21' }, { status: 'Backlog', statusCategory });
+  expect(classify(candidate).strong[0]).toMatchObject({ closedDate: '2026-10-21', status: 'Backlog', statusCategory });
+  expect(classify({ ...candidate, partOriginal: 'P-4471-B' }).relatedRevision[0]).toMatchObject({ statusCategory });
+});
 test('spacing and case only differences are strong and preserve original', () => {
   const current = { ...nc, partOriginal: ' bracket  4471-a ' };
   const original = 'BRACKET   4471-A';

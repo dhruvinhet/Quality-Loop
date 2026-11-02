@@ -79,7 +79,7 @@ test('returns errors as data on Jira failure without exposing response bodies', 
 test('release resolver surface contains only shipped features', () => {
   expect(Object.keys(handler).sort()).toEqual([
     'loadCapture', 'loadEvidence', 'saveCapture', 'findMatches', 'findHints', 'getPanelAccess',
-    'recordDecision', 'getDecisions', 'prepareConcernTask', 'createConcernTask',
+    'recordDecision', 'getDecisions', 'prepareConcernTask', 'createConcernTask', 'checkConcernTask', 'confirmConcernTask',
   ].sort());
 });
 
@@ -137,7 +137,7 @@ test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or st
     .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
     .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
   const result = await handler.findMatches({ context });
-  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, elapsedMs: expect.any(Number) });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, notShown: { strong: 0, relatedRevision: 0 }, elapsedMs: expect.any(Number) });
   expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
 });
 

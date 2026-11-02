@@ -5,19 +5,22 @@ import { buildMatchJql, buildOtherRelatedJql } from '../lib/matchJql';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
 
 export const MATCH_CANDIDATE_LIMIT = 200;
+export const MATCH_DISPLAY_LIMIT = 25;
 export const OTHER_RELATED_LIMIT = 20;
 const classes = ['strong', 'relatedRevision', 'otherRelated'];
 const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
 export function issueCapture(issue) {
   const capture = issue?.properties?.qualityloop;
   if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
-  return { ...capture, id: String(issue.id), key: issue.key, summary: issue.fields?.summary, status: issue.fields?.status?.name };
+  return { ...capture, id: String(issue.id), key: issue.key, summary: issue.fields?.summary,
+    status: issue.fields?.status?.name, statusCategory: issue.fields?.status?.statusCategory?.key };
 }
 
-export async function findMatches(issueId, budget = loadBudget(), authorised = new Map()) {
+export async function findMatches(issueId, budget = loadBudget(), authorised = new Map(), undisplayed = new Set()) {
   const started = Date.now();
   const result = { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
-    matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false };
+    matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false,
+    notShown: { strong: 0, relatedRevision: 0 } };
   try {
     const response = await budget.run(() => api.asUser().requestJira(
       route`/rest/api/3/issue/${issueId}/properties/qualityloop`, { headers }));
@@ -51,7 +54,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
           if (!/^\d+$/.test(id) || seen.has(id)) continue;
           seen.add(id);
           const classified = matchCaptures(nc, [issueCapture(issue)]);
-          for (const kind of allowed) if (classified[kind].length) selected.push({ id, kind });
+          for (const kind of allowed) if (classified[kind].length) selected.push({ id, kind, match: classified[kind][0] });
         }
         const more = data.isLast !== true && (!!data.nextPageToken || data.isLast === false);
         token = more ? data.nextPageToken : undefined;
@@ -61,9 +64,20 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
         if (flag === 'otherRelatedIncomplete' && fetched >= limit) result[flag] = true;
         if (fetched >= limit || pages >= limit) break;
       } while (token);
-      // Only selected cards get direct reads, in batches of at most five.
-      for (let offset = 0; offset < selected.length; offset += 5) {
-        const batch = await Promise.all(selected.slice(offset, offset + 5).map(async ({ id, kind }) => {
+      // Count only asUser search results, never a Jira total. Select the newest
+      // 25 per signature class before direct reads or decision-history loading.
+      const displayed = [];
+      for (const kind of allowed) {
+        const sorted = selected.filter((item) => item.kind === kind)
+          .sort((a, b) => b.match.closedDate.localeCompare(a.match.closedDate) || a.match.key.localeCompare(b.match.key));
+        const limit = kind === 'otherRelated' ? sorted.length : MATCH_DISPLAY_LIMIT;
+        displayed.push(...sorted.slice(0, limit));
+        if (kind !== 'otherRelated') result.notShown[kind] = sorted.length - Math.min(sorted.length, limit);
+        for (const item of sorted.slice(limit)) undisplayed.add(item.id);
+      }
+      // Only displayed cards get direct reads, in batches of at most five.
+      for (let offset = 0; offset < displayed.length; offset += 5) {
+        const batch = await Promise.all(displayed.slice(offset, offset + 5).map(async ({ id, kind }) => {
           const fresh = await budget.run(() => api.asUser().requestJira(
             route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`, { headers }));
           if ([403, 404].includes(fresh.status)) return null;

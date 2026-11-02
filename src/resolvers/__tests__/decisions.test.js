@@ -23,7 +23,8 @@ const payload = { capaId: '20002', expectedVersion: 0, type: 'CONFIRM', reason: 
 const decisionId = '20002:10001:1793400000000-12345678-1234-1234-1234-123456789abc';
 const concern = { issueId: '10001', capaId: '20002', type: 'CONCERN', reason: 'Review evidence',
   authorAccountId: 'server-account', evidenceLinks: [], createdAt: '2026-10-31T12:00:00.000Z' };
-const followup = { capaId: '20002', decisionId, confirmation: "Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002" };
+const { followupConfirmation } = require('../../lib/decisions');
+const followup = { capaId: '20002', decisionId, confirmation: followupConfirmation('QL', 'QL-20002') };
 let edit;
 let create;
 let hidden;
@@ -181,9 +182,9 @@ test('no create permission retains the recorded concern and shows the specified 
   expect(store.claimTask).not.toHaveBeenCalled();
 });
 test('confirmed follow-up creates a project-specific Task and relates-to link asUser', async () => {
-  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('message', 'Recorded. Created QL-30003 and linked it to QL-20002.');
+  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('message', 'Recorded. Created QL-30003 and linked it to QL-20002; unassigned.');
   const post = requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issue');
-  expect(JSON.parse(post[1].body)).toEqual({ fields: { project: { id: '123' }, issuetype: { id: '987' }, summary: 'Effectiveness re-review: QL-20002' } });
+  expect(JSON.parse(post[1].body)).toEqual({ fields: { project: { id: '123' }, issuetype: { id: '987' }, summary: 'Effectiveness re-review: QL-20002', assignee: null } });
   expect(store.saveTaskMetadata).toHaveBeenCalledWith(decisionId, expect.objectContaining({ taskKey: 'QL-30003', reason: concern.reason }));
   const link = requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issueLink');
   expect(JSON.parse(link[1].body)).toEqual({ type: { id: 'relates-id' }, outwardIssue: { id: '30003' }, inwardIssue: { id: '20002' } });
@@ -222,4 +223,196 @@ test('duplicate follow-up request and a different author cannot create a task', 
   store.readDecision.mockResolvedValue({ ...concern, authorAccountId: 'other-user' });
   expect(await handler.createConcernTask({ context, payload: followup })).toBeNull();
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(0);
+});
+
+function withAssignee(owner, { rejected = false, changedOwner = false } = {}) {
+  const original = requestJira.getMockImplementation();
+  let reads = 0;
+  let attempts = 0;
+  requestJira.mockImplementation(async (path, options) => {
+    if (path === '/rest/api/3/issue') {
+      attempts++;
+      if (rejected && attempts === 1) return response(400, { errors: { assignee: 'Not assignable' } });
+    }
+    const result = await original(path, options);
+    if (path.startsWith('/rest/api/3/issue/20002?') || path.startsWith('/rest/api/3/issue/30003?')) {
+      const data = await result.json();
+      const assignee = path.includes('/20002?') ? (++reads > 1 && changedOwner ? { accountId: 'new-owner', displayName: 'New owner' } : owner)
+        : rejected ? null : owner;
+      return response(200, { ...data, fields: { ...data.fields, assignee } });
+    }
+    return result;
+  });
+}
+
+test('confirmation lists CAPA owner; creation assigns at creation and reports actual ownership', async () => {
+  withAssignee({ accountId: 'owner', displayName: 'CAPA Owner' });
+  const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
+  expect(proposal.confirmation).toContain('Intended assignee: CAPA Owner (owner)');
+  const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: proposal.confirmation } });
+  expect(result.message).toContain('assigned to CAPA Owner');
+  expect(JSON.parse(requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issue')[1].body).fields.assignee).toEqual({ accountId: 'owner' });
+});
+
+test('definitive assignee rejection retries unassigned under the same durable claim', async () => {
+  const owner = { accountId: 'owner', displayName: 'CAPA Owner' };
+  withAssignee(owner, { rejected: true });
+  const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: followupConfirmation('QL', 'QL-20002', owner) } });
+  expect(result.message).toContain('; unassigned.');
+  const attempts = requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue');
+  expect(attempts.map(([, options]) => JSON.parse(options.body).fields.assignee)).toEqual([{ accountId: 'owner' }, null]);
+  expect(store.claimTask).toHaveBeenCalledTimes(1);
+});
+
+test.each([403, 429, 500, 503])('assignment creation HTTP %i never causes an automatic retry', async (status) => {
+  const owner = { accountId: 'owner', displayName: 'CAPA Owner' };
+  withAssignee(owner); createStatus = status;
+  await handler.createConcernTask({ context, payload: { ...followup, confirmation: followupConfirmation('QL', 'QL-20002', owner) } });
+  expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(1);
+});
+
+test('a changed owner invalidates confirmation before claim or creation', async () => {
+  const owner = { accountId: 'owner', displayName: 'CAPA Owner' };
+  withAssignee(owner, { changedOwner: true });
+  expect(await handler.createConcernTask({ context, payload: { ...followup, confirmation: followupConfirmation('QL', 'QL-20002', owner) } }))
+    .toHaveProperty('error', expect.stringContaining('assignee changed'));
+  expect(store.claimTask).not.toHaveBeenCalled();
+});
+
+const claimedAt = '2026-10-31T12:01:00.000Z';
+const recoveryTask = (id = '30003', patch = {}) => ({ ...issue(id), fields: { project, summary: 'Effectiveness re-review: QL-20002',
+  created: '2026-10-31T12:02:00.000Z', ...patch } });
+function recoveryScenario(rows, { incomplete = false, direct = rows } = {}) {
+  store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: claimedAt });
+  store.saveTaskMetadata.mockResolvedValue(true);
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, options) => {
+    if (path === '/rest/api/3/search/jql' && JSON.parse(options.body).jql.includes('summary ~')) {
+      return response(200, { issues: rows, isLast: !incomplete });
+    }
+    const id = path.match(/issue\/(\d+)\?/)?.[1];
+    if (id && !hidden.has(id) && direct.some((task) => task.id === id)) return response(200, direct.find((task) => task.id === id));
+    return original(path, options);
+  });
+}
+
+test('unconfirmed claims show recovery without exposing claim IDs', async () => {
+  store.queryRecords.mockImplementation(async (entity) => ({ records: entity === 'decision'
+    ? [{ ...concern, id: decisionId, taskClaimId: 'claim', taskClaimedAt: claimedAt }] : [], incomplete: false }));
+  const result = await handler.loadEvidence({ context });
+  expect(result.pairs['20002'].history[0]).toMatchObject({ followupUnconfirmed: true });
+  expect(JSON.stringify(result)).not.toContain('taskClaimId');
+});
+
+test('recovery finds one visible task and stores its key only after explicit confirmation', async () => {
+  recoveryScenario([recoveryTask()]);
+  const recoveryPayload = { capaId: '20002', decisionId };
+  const proposal = await handler.checkConcernTask({ context, payload: recoveryPayload });
+  expect(proposal).toMatchObject({ task: { id: '30003', key: 'QL-30003' } });
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+  expect(await handler.confirmConcernTask({ context, payload: { ...recoveryPayload, taskId: proposal.task.id, confirmation: 'yes' } }))
+    .toHaveProperty('error');
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+  expect(await handler.confirmConcernTask({ context, payload: { ...recoveryPayload, taskId: proposal.task.id, confirmation: proposal.confirmation } }))
+    .toMatchObject({ taskKey: 'QL-30003' });
+  expect(store.saveTaskMetadata).toHaveBeenCalledWith(decisionId, expect.objectContaining({ taskClaimId: 'claim', taskKey: 'QL-30003' }));
+  expect(store.claimTask).not.toHaveBeenCalled();
+  expect(requestJira.mock.calls.filter(([path, options]) => options?.method === 'POST' && path !== '/rest/api/3/search/jql')).toEqual([]);
+});
+
+test.each([
+  [[], 'No visible matching task'],
+  [[recoveryTask(), recoveryTask('30004')], 'More than one visible matching task'],
+  [[recoveryTask('30003', { created: claimedAt })], 'No visible matching task'],
+  [[recoveryTask('30003', { summary: 'Effectiveness re-review: QL-20002 extra' })], 'No visible matching task'],
+])('recovery does not record ambiguous or invalid results', async (rows, message) => {
+  recoveryScenario(rows);
+  expect(await handler.checkConcernTask({ context, payload: { capaId: '20002', decisionId } })).toHaveProperty('message', expect.stringContaining(message));
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+  expect(store.claimTask).not.toHaveBeenCalled();
+});
+
+test('a subsequently hidden task contributes neither a key nor a count', async () => {
+  recoveryScenario([recoveryTask()]); hidden.add('30003');
+  const result = await handler.checkConcernTask({ context, payload: { capaId: '20002', decisionId } });
+  expect(result.message).toContain('No visible matching task');
+  expect(JSON.stringify(result)).not.toMatch(/QL-30003|SECRET/);
+});
+
+test('incomplete recovery never claims a unique result', async () => {
+  recoveryScenario([recoveryTask()], { incomplete: true });
+  const result = await handler.checkConcernTask({ context, payload: { capaId: '20002', decisionId } });
+  expect(result.message).toContain('incomplete');
+  expect(result.task).toBeUndefined();
+});
+
+test('old claims without a timestamp explain the limitation and never create or guess', async () => {
+  store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'old-claim' });
+  expect(await handler.checkConcernTask({ context, payload: { capaId: '20002', decisionId } }))
+    .toHaveProperty('message', expect.stringContaining('claim time was not recorded'));
+  expect(requestJira.mock.calls.some(([path]) => path === '/rest/api/3/search/jql')).toBe(false);
+});
+
+test('recovery confirms uniqueness again and refuses a task introduced after the dialog', async () => {
+  const rows = [recoveryTask()]; recoveryScenario(rows);
+  const proposal = await handler.checkConcernTask({ context, payload: { capaId: '20002', decisionId } });
+  rows.push(recoveryTask('30004'));
+  const result = await handler.confirmConcernTask({ context, payload: { capaId: '20002', decisionId, taskId: '30003', confirmation: proposal.confirmation } });
+  expect(result.message).toContain('More than one');
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+});
+
+test.each([403, 404])('recovery denies a payload task HTTP %i before reading decision storage', async (status) => {
+  requestJira.mockResolvedValue(response(status, {}));
+  expect(await handler.confirmConcernTask({ context, payload: { capaId: '20002', decisionId, taskId: '30003', confirmation: 'yes' } })).toBeNull();
+  expect(store.readDecision).not.toHaveBeenCalled();
+});
+
+test('per-CAPA decision loads run concurrently with a maximum of five', async () => {
+  const ids = Array.from({ length: 12 }, (_, i) => String(20002 + i));
+  store.queryRecords.mockImplementation(async (entity, index) => ({ records: entity === 'pair-state' && index === 'by-issue'
+    ? ids.map((capaId) => ({ capaId, issueId: '10001' })) : [], incomplete: false }));
+  let active = 0, peak = 0;
+  store.getPairState.mockImplementation(async () => {
+    active++; peak = Math.max(peak, active);
+    await new Promise((resolve) => setImmediate(resolve));
+    active--;
+    return { version: 0, state: 'NONE' };
+  });
+  const result = await handler.loadEvidence({ context });
+  expect(Object.keys(result.pairs)).toHaveLength(12);
+  expect(peak).toBe(5);
+  const reads = requestJira.mock.calls.filter(([path]) => path.startsWith('/rest/api/3/issue/20002?'));
+  expect(reads).toHaveLength(1); // match verification reused by decision loading
+});
+
+test('parallel CAPAs share an in-flight referenced NC authorization read', async () => {
+  store.queryRecords.mockImplementation(async (entity, index, partition) => ({ records: entity !== 'pair-state' ? []
+    : index === 'by-issue' ? ['20002', '20003', '20004'].map((capaId) => ({ capaId, issueId: '10001' }))
+      : [{ capaId: partition, issueId: '10009' }], incomplete: false }));
+  store.getPairState.mockResolvedValue({ version: 1, state: 'CONFIRMED', confirmed: true });
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, ...rest) => {
+    if (path.startsWith('/rest/api/3/issue/10009?')) await new Promise((resolve) => setImmediate(resolve));
+    return original(path, ...rest);
+  });
+  const result = await handler.loadEvidence({ context });
+  expect(Object.values(result.pairs).map((pair) => pair.confirmedCount)).toEqual([1, 1, 1]);
+  expect(requestJira.mock.calls.filter(([path]) => path.startsWith('/rest/api/3/issue/10009?'))).toHaveLength(1);
+});
+
+test.each(['transport', 'generic400'])('an uncertain or unrelated assignment failure (%s) never retries creation', async (failure) => {
+  const owner = { accountId: 'owner', displayName: 'CAPA Owner' };
+  withAssignee(owner);
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, options) => {
+    if (path === '/rest/api/3/issue') {
+      if (failure === 'transport') throw new Error('Connection interrupted');
+      return response(400, { errors: { customfield_1: 'Required' } });
+    }
+    return original(path, options);
+  });
+  const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: followupConfirmation('QL', 'QL-20002', owner) } });
+  expect(result.error).toBeDefined();
+  expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(1);
 });

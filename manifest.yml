@@ -141,6 +141,8 @@ app:
             type: string
           taskClaimId:
             type: string
+          taskClaimedAt:
+            type: string
         indexes:
           - name: by-issue
             partition:
