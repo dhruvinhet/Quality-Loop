@@ -59,6 +59,18 @@ export function nextState(type, previous, capa) {
   return state;
 }
 export const emptyPairState = () => ({ version: 0, state: 'NONE' });
+export function confirmedAfter(type, previous = false) {
+  if (type === 'CONFIRM') return true;
+  if (type === 'NOT_RECURRENCE') return false;
+  return previous;
+}
+
+// Newest decisive event wins; concerns and explanation corrections do not reset it.
+export function confirmedFromHistory(history) {
+  const decisive = [...history].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+    .find(({ type }) => ['CONFIRM', 'NOT_RECURRENCE'].includes(type));
+  return decisive ? decisive.type === 'CONFIRM' : false;
+}
 export function followupConfirmation(project, capaKey) {
   return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}`;
 }

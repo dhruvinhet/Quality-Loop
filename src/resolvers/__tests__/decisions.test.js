@@ -5,7 +5,7 @@ jest.mock('@forge/resolver', () => ({ __esModule: true, default: class {
 } }));
 jest.mock('@forge/api', () => ({ __esModule: true, default: { asUser: jest.fn() },
   route: (strings, ...values) => strings.reduce((text, part, index) => text + part + (values[index] ?? ''), '') }));
-jest.mock('../decisionStore', () => ({ commitDecision: jest.fn(), getPairState: jest.fn(), queryDecisions: jest.fn(),
+jest.mock('../decisionStore', () => ({ commitDecision: jest.fn(), getPairState: jest.fn(), queryRecords: jest.fn(), pairConfirmed: jest.fn(), PAIR_ENTITY: "pair-state", DECISION_ENTITY: "decision",
   readDecision: jest.fn(), claimTask: jest.fn(), saveTaskMetadata: jest.fn() }));
 
 const api = require('@forge/api').default;
@@ -40,7 +40,7 @@ beforeEach(() => {
     if (path.includes('mypermissions')) return response(200, { permissions: {
       EDIT_ISSUES: { havePermission: edit }, CREATE_ISSUES: { havePermission: create } } });
     if (path === '/rest/api/3/issue/10001/properties/qualityloop') return response(200, { value: current });
-    if (path === '/rest/api/3/search/jql') return response(200, { issues: searchIds.map((id) => ({ id })), isLast: true });
+    if (path === '/rest/api/3/search/jql') return response(200, { issues: searchIds.map((id) => issue(id, captured)), isLast: true });
     if (path.startsWith('/rest/api/3/user?')) return response(200, { displayName: 'Engineer' });
     if (path.startsWith('/rest/api/3/issue/createmeta/')) return response(200, { issueTypes: [{ id: '987', name: 'Task', subtask: false }], total: 1 });
     if (path === '/rest/api/3/issueLinkType') return response(200, { issueLinkTypes: [{ id: 'relates-id', inward: 'relates to', outward: 'relates to' }] });
@@ -53,7 +53,8 @@ beforeEach(() => {
   });
   store.getPairState.mockResolvedValue({ version: 0, state: 'NONE' });
   store.commitDecision.mockResolvedValue({ success: true });
-  store.queryDecisions.mockResolvedValue([]);
+  store.queryRecords.mockResolvedValue({ records: [], incomplete: false });
+  store.pairConfirmed.mockImplementation(async (state) => state.confirmed === true);
   store.readDecision.mockResolvedValue(concern);
   store.claimTask.mockResolvedValue({ ...concern, taskClaimId: 'claim' });
   store.saveTaskMetadata.mockResolvedValue();
@@ -72,7 +73,8 @@ test('decision uses context identity and fresh strong matching before committing
   expect(await handler.recordDecision({ context, payload })).toEqual({ success: true });
   expect(store.commitDecision).toHaveBeenCalledWith(expect.objectContaining({ issueId: '10001', authorAccountId: 'server-account',
     capa: expect.objectContaining({ id: '20002' }), payload }));
-  expect(requestJira.mock.calls.map(([path]) => path)).toContain('/rest/api/3/search/jql');
+  expect(requestJira.mock.calls.map(([path]) => path)).not.toContain('/rest/api/3/search/jql');
+  expect(requestJira).toHaveBeenCalledTimes(3);
 });
 test.each(['issueId', 'authorAccountId', 'createdAt', 'state'])('rejects client %s before APIs or storage', async (field) => {
   expect(await handler.recordDecision({ context, payload: { ...payload, [field]: 'injected' } })).toHaveProperty('error');
@@ -85,9 +87,9 @@ test('refuses absent account context, non-editors, non-NCs, stale versions and n
   expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
   edit = true; current = { ...nc, recordType: 'CAPA' };
   expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
-  current = nc; searchIds = [];
+  current = nc; captured = { ...capa, failureMode: 'FM-02' };
   expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
-  searchIds = ['20002']; store.getPairState.mockResolvedValue({ version: 2, state: 'CONFIRMED' });
+  captured = capa; store.getPairState.mockResolvedValue({ version: 2, state: 'CONFIRMED' });
   expect(await handler.recordDecision({ context, payload })).toEqual({ conflict: true, pairState: { version: 2, state: 'CONFIRMED' } });
   expect(store.commitDecision).not.toHaveBeenCalled();
 });
@@ -119,10 +121,11 @@ test('CONCERN eligibility is enforced before any write', async () => {
 });
 test('history filters hidden CAPAs; aggregate counts also filter hidden NCs', async () => {
   hidden.add('20004'); hidden.add('10009');
-  store.queryDecisions.mockImplementation(async (index) => index === 'by-issue'
-    ? [{ ...concern, id: decisionId, type: 'CONFIRM' }, { ...concern, capaId: '20004', reason: 'SECRET', id: 'hidden' }]
-    : [{ ...concern, type: 'CONFIRM' }, { ...concern, type: 'CONFIRM', issueId: '10009' },
-      { ...concern, type: 'CONCERN' }, { ...concern, type: 'CONFIRM', createdAt: '2026-09-01T00:00:00.000Z' }]);
+  store.queryRecords.mockImplementation(async (entity, index) => ({ records: entity === 'decision'
+    ? [{ ...concern, id: decisionId, type: 'CONFIRM' }]
+    : index === 'by-issue' ? [{ capaId: '20002', issueId: '10001' }, { capaId: '20004', issueId: '10001' }]
+      : [{ capaId: '20002', issueId: '10001' }, { capaId: '20002', issueId: '10009' }], incomplete: false }));
+  store.getPairState.mockResolvedValue({ version: 10, state: 'CONFIRMED', confirmed: true });
   const result = await handler.getDecisions({ context });
   expect(Object.keys(result.pairs)).toEqual(['20002']);
   expect(result.pairs['20002']).toMatchObject({ confirmedCount: 1, history: [{ authorDisplayName: 'Engineer' }] });
@@ -133,10 +136,37 @@ test('direct latest-decision read fills an index-lag gap in history', async () =
   const result = await handler.getDecisions({ context });
   expect(result.pairs['20002'].history).toMatchObject([{ id: decisionId, reason: concern.reason }]);
 });
+test('50 newest decisions per pair are displayed with an older-history notice', async () => {
+  store.queryRecords.mockImplementation(async (entity) => ({ records: entity === 'decision'
+    ? Array.from({ length: 51 }, (_, i) => ({ ...concern, id: `decision-${String(i).padStart(2, '0')}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString() })) : [], incomplete: false }));
+  const result = await handler.loadEvidence({ context });
+  expect(result.pairs['20002'].history).toHaveLength(50);
+  expect(result.pairs['20002'].history[0].id).toBe('decision-50');
+  expect(result.pairs['20002'].history.at(-1).id).toBe('decision-01');
+  expect(result.pairs['20002'].historyIncomplete).toBe(true);
+});
+test.each([
+  [true, 1], [false, 0],
+])('pair state confirmed=%s counts one distinct visible NC as %i regardless of repeated events', async (confirmed, count) => {
+  store.getPairState.mockResolvedValue({ version: 10, state: 'CONCERN_RAISED', confirmed });
+  store.queryRecords.mockImplementation(async (entity, index) => ({ records: entity === 'decision' ? Array.from({ length: 10 }, (_, i) => ({ ...concern, id: `d${i}`, type: 'CONFIRM' }))
+    : index === 'by-capa' ? [{ capaId: '20002', issueId: '10001' }, { capaId: '20002', issueId: '10001' }] : [], incomplete: false }));
+  const result = await handler.loadEvidence({ context });
+  expect(result.pairs['20002'].confirmedCount).toBe(count);
+});
+test('50+ requires 51 authorised currently confirmed NCs; hidden pairs never manufacture 50+', async () => {
+  store.getPairState.mockResolvedValue({ version: 1, state: 'CONFIRMED', confirmed: true });
+  store.queryRecords.mockImplementation(async (entity, index) => ({ records: entity === 'pair-state' && index === 'by-capa'
+    ? Array.from({ length: 51 }, (_, i) => ({ capaId: '20002', issueId: String(11000 + i) })) : [], incomplete: true }));
+  expect((await handler.loadEvidence({ context })).pairs['20002'].confirmedCount).toBe('50+');
+  hidden.add('11050');
+  const limited = (await handler.loadEvidence({ context })).pairs['20002'];
+  expect(limited).toMatchObject({ confirmedCount: 50, confirmedCountIncomplete: true });
+});
 test('unbrowsable current issue returns no history or counts and never queries storage', async () => {
   hidden.add('10001');
   expect(await handler.getDecisions({ context })).toBeNull();
-  expect(store.queryDecisions).not.toHaveBeenCalled();
+  expect(store.queryRecords).not.toHaveBeenCalled();
 });
 test('prepare only lists writes; creating a task requires the exact confirmed listing', async () => {
   expect(await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } })).toEqual({ confirmation: followup.confirmation });

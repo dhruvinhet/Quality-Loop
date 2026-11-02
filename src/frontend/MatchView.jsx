@@ -11,11 +11,11 @@ export default function MatchView({ refresh = 0, readOnly = false, canEdit = !re
   useEffect(() => {
     let active = true;
     setState((previous) => ({ ...previous, error: null, refreshing: true }));
-    Promise.all([invoke('findMatches'), invoke('getDecisions')
-      .catch(() => ({ error: 'Decision history could not be loaded. Refresh evidence and decisions to try again.' })), invoke('findHints')
-      .catch(() => ({ error: 'Hints could not be loaded. Refresh evidence to try again.' }))]).then(([result, decisions, hints]) => {
-      if (active) setState({ result, hints, error: result?.error || (!result ? 'Evidence is unavailable with your current issue access.' : null), pairs: decisions?.pairs,
-        decisionsError: decisions?.error || (!decisions?.pairs ? 'Decision history could not be loaded.' : null) });
+    Promise.all([invoke('loadEvidence'), invoke('findHints')
+      .catch(() => ({ error: 'Hints could not be loaded. Refresh evidence to try again.' }))]).then(([result, hints]) => {
+      if (active) setState({ result, hints, error: result?.error || (!result ? 'Evidence is unavailable with your current issue access.' : null), pairs: result?.pairs,
+        decisionsError: result?.decisionsIncomplete ? 'Decision history and counts are incomplete. Refresh to try again.'
+          : (!result?.pairs ? 'Decision history could not be loaded.' : null) });
     }).catch(() => {
       if (active) setState({ error: 'Closed CAPA evidence could not be loaded.' });
     });
@@ -29,7 +29,7 @@ export default function MatchView({ refresh = 0, readOnly = false, canEdit = !re
   </Stack>;
   if (state.error) return <Stack space="space.200">
     <EvidenceHeading />
-    <SectionMessage appearance="error"><Text>Closed CAPA evidence could not be loaded. Retry the search. If it still does not load, check your issue access.</Text></SectionMessage>
+    <SectionMessage appearance="error"><Text>{state.error}</Text></SectionMessage>
     <Button onClick={retry}>Retry</Button>
   </Stack>;
   return <Stack space="space.200">

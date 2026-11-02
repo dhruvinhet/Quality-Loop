@@ -9,5 +9,17 @@ export function escapeJqlValue(value) {
 
 export function buildMatchJql(capture, lookbackDays = defaultLookbackDays) {
   const { partBase } = normalise(capture.partOriginal);
-  return `qlRecordType = "CAPA" AND (qlPartBase = ${escapeJqlValue(partBase)} OR qlFailureMode = ${escapeJqlValue(capture.failureMode)}) AND qlClosed <= ${escapeJqlValue(capture.detectedDate)} AND qlClosed >= ${escapeJqlValue(windowStart(capture.detectedDate, lookbackDays))} ORDER BY qlClosed DESC, key ASC`;
+  return boundedJql(capture, `qlPartBase = ${escapeJqlValue(partBase)} AND qlFailureMode = ${escapeJqlValue(capture.failureMode)}`, lookbackDays);
+}
+
+function boundedJql(capture, signature, lookbackDays = defaultLookbackDays) {
+  return `qlRecordType = "CAPA" AND ${signature} AND qlClosed >= ${escapeJqlValue(windowStart(capture.detectedDate, lookbackDays))} AND qlClosed <= ${escapeJqlValue(capture.detectedDate)} ORDER BY qlClosed DESC, key ASC`;
+}
+
+export function buildOtherRelatedJql(capture) {
+  const { partBase, partNorm } = normalise(capture.partOriginal);
+  return [
+    boundedJql(capture, `qlPart = ${escapeJqlValue(partNorm)} AND qlFailureMode != ${escapeJqlValue(capture.failureMode)}`),
+    ...(capture.supplier?.trim() ? [boundedJql(capture, `qlFailureMode = ${escapeJqlValue(capture.failureMode)} AND qlSupplier = ${escapeJqlValue(capture.supplier)} AND qlPartBase != ${escapeJqlValue(partBase)}`)] : []),
+  ];
 }

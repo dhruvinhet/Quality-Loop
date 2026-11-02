@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, Heading, Link, Stack, Text } from '@forge/react';
+import { Box, Button, Heading, Link, SectionMessage, Stack, Text } from '@forge/react';
 import { FAILURE_MODES } from '../config/failureModes';
 import DecisionDetails from './DecisionDetails';
 
@@ -51,8 +51,11 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
   const { strong, relatedRevision, otherRelated } = result;
   return <Stack space="space.200">
     <EvidenceHeading />
+    {result.matchesIncomplete && <SectionMessage appearance="warning"><Text>Signature search is incomplete: checked up to 200 candidates. More closed CAPAs may match.</Text></SectionMessage>}
+    {result.otherRelatedIncomplete && <SectionMessage appearance="warning"><Text>Other related search is limited to 20 candidates per query. More related records may exist.</Text></SectionMessage>}
+    {result.incomplete && <SectionMessage appearance="warning"><Text>The loading time budget was reached or some evidence is incomplete. Only completed results are shown. Refresh to try again.</Text></SectionMessage>}
     {!strong.length && <>
-      <Text>No closed CAPA with this part and failure mode in the last 365 days</Text>
+      <Text>{result.matchesIncomplete || result.incomplete ? 'No exact signature match found in the completed checks.' : 'No closed CAPA with this part and failure mode in the last 365 days'}</Text>
       <Text>{canEdit === false ? 'Check the saved quality details. Ask someone with Edit Issues permission to correct them if needed, then refresh evidence.'
         : 'Check the saved part number, failure mode and detected date, then refresh evidence.'}</Text>
       {!!relatedRevision.length && <Text>Related revisions are shown separately below. They are not exact signature matches.</Text>}

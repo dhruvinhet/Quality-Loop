@@ -109,5 +109,5 @@ test('JQL values escape quotes and backslashes and cannot break out of the liter
   expect(escapeJqlValue('" OR issue != 1')).toBe('"\\" OR issue != 1"');
   expect(() => escapeJqlValue('bad\nvalue')).toThrow();
   const query = buildMatchJql(nc);
-  expect(query).toBe('qlRecordType = "CAPA" AND (qlPartBase = "P-4471" OR qlFailureMode = "FM-01") AND qlClosed <= "2026-10-31" AND qlClosed >= "2025-10-31" ORDER BY qlClosed DESC, key ASC');
+  expect(query).toBe('qlRecordType = "CAPA" AND qlPartBase = "P-4471" AND qlFailureMode = "FM-01" AND qlClosed >= "2025-10-31" AND qlClosed <= "2026-10-31" ORDER BY qlClosed DESC, key ASC');
 });

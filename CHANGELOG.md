@@ -2,6 +2,10 @@
 
 ## Unreleased — 2026-11-02
 
+- Bound evidence retrieval to 200 signature candidates and 20 candidates per other-related query, classify search properties and reauthorize only returned cards, and disclose caps and the 15-second load budget.
+- Load matches and decisions together, validate decision saves against only the selected CAPA, cap history at 50 records per pair, and count distinct currently confirmed browsable NCs from pair state. Add the `confirmed` boolean attribute without new scopes.
+- Add SIMULATED scale coverage and a dry-run-default, label-restricted REAL benchmark fixture/cleanup script. See [T14](docs/tasks/T14.md) for call counts, documentation findings and owner checks.
+
 - Repair the lockfile's missing React DOM peer dependency for a default clean `npm ci`, preserving existing dependency versions and prerelease pins.
 - Rename the npm package to `qualityloop`, add the MIT license for Dhruvinkumar Patel, and move existing task reports into `docs/tasks/` with corrected links.
 - Record stable Forge dependency recommendations and full clean-install verification output in [T13](docs/tasks/T13.md). No application behaviour or manifest changes.

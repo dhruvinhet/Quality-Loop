@@ -1,8 +1,8 @@
 import Resolver from '@forge/resolver';
 import api, { route } from '@forge/api';
 import { buildCapture, CAPTURE_FIELDS, validateCapture, validDate } from '../lib/capture';
-import { matchCaptures } from '../lib/match';
-import { buildMatchJql } from '../lib/matchJql';
+import { findMatches } from './evidence';
+import { BudgetExceeded, JIRA_BUSY, checkJira, loadBudget } from './loadBudget';
 import { buildHintJql } from '../lib/hintJql';
 import { HINT_CANDIDATE_LIMIT, selectHints } from '../lib/hints';
 import { registerDecisionResolvers } from './decisions';
@@ -31,7 +31,8 @@ function define(name, fields, fn) {
       const payload = req.payload ?? {};
       allowFields(payload, fields);
       return await fn(issueFromContext(req), payload, req.context);
-    } catch {
+    } catch (error) {
+      if (error.message === JIRA_BUSY) return { error: JIRA_BUSY };
       console.error(`QualityLoop ${name} failed.`);
       return { error: 'QualityLoop could not complete the request. Reopen the panel and try again.' };
     }
@@ -44,7 +45,7 @@ async function readProperty(issueId, propertyKey) {
     { headers: { Accept: 'application/json' } },
   );
   if (response.status === 403 || response.status === 404) return null;
-  if (!response.ok) throw new Error(`Property GET returned HTTP ${response.status}`);
+  checkJira(response);
   return (await response.json()).value;
 }
 
@@ -54,7 +55,7 @@ async function writeProperty(issueId, propertyKey, value) {
     { method: 'PUT', headers, body: JSON.stringify(value) },
   );
   if (response.status === 403 || response.status === 404) return null;
-  if (!response.ok) throw new Error(`Property PUT returned HTTP ${response.status}`);
+  checkJira(response);
   return true;
 }
 
@@ -65,89 +66,55 @@ define('loadCapture', [], async (issueId) => {
   return { record };
 });
 
-async function findMatches(issueId) {
-  const started = Date.now();
-  const current = await readProperty(issueId, 'qualityloop');
-  if (current == null) return null;
-  if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
-  if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
-  const jql = buildMatchJql(current);
-  const candidates = [];
-  const seen = new Set();
-  let nextPageToken;
-  do {
-    const response = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ jql, maxResults: 50, fields: ['summary', 'status'],
-        properties: ['qualityloop'], ...(nextPageToken ? { nextPageToken } : {}) }),
-    });
-    if (response.status === 403 || response.status === 404) return null;
-    if (!response.ok) throw new Error(`Match search returned HTTP ${response.status}`);
-    const data = await response.json();
-    const issues = (data.issues ?? []).filter(({ id }) => /^\d+$/.test(String(id)) && String(id) !== issueId && !seen.has(String(id)));
-    // Bound concurrency; use fresh metadata AND property rather than search snapshots.
-    for (let offset = 0; offset < issues.length; offset += 5) {
-      const fresh = await Promise.all(issues.slice(offset, offset + 5).map(async ({ id }) => {
-        seen.add(String(id));
-        const result = await api.asUser().requestJira(
-          route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`,
-          { headers: { Accept: 'application/json' } },
-        );
-        if (result.status === 403 || result.status === 404) return null;
-        if (!result.ok) throw new Error(`Candidate GET returned HTTP ${result.status}`);
-        const issue = await result.json();
-        const capture = issue.properties?.qualityloop;
-        if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
-        return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary, status: issue.fields?.status?.name };
-      }));
-      candidates.push(...fresh.filter(Boolean));
-    }
-    nextPageToken = data.isLast === true ? undefined : data.nextPageToken;
-  } while (nextPageToken);
-  return { applicable: true, ...matchCaptures({ ...current, id: issueId }, candidates), elapsedMs: Date.now() - started };
-}
-define('findMatches', [], findMatches);
+define('findMatches', [], (issueId) => findMatches(issueId));
 
 define('findHints', [], async (issueId) => {
-  const current = await readProperty(issueId, 'qualityloop');
-  if (current == null) return null;
-  if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
-  if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+  const budget = loadBudget();
+  let current;
   const candidates = [];
-  const seen = new Set([issueId]);
-  // One capped page per query. Never use search totals or search snapshots as
-  // evidence, and never let hint candidates enter the match/decision pipeline.
-  for (const jql of buildHintJql(current)) {
-    const response = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ jql, maxResults: HINT_CANDIDATE_LIMIT, fields: ['id'] }),
-    });
-    if (response.status === 403 || response.status === 404) return null;
-    if (!response.ok) throw new Error(`Hint search returned HTTP ${response.status}`);
-    const data = await response.json();
-    const issues = (data.issues ?? []).slice(0, HINT_CANDIDATE_LIMIT).filter(({ id }) => {
-      const value = String(id);
-      if (!/^\d+$/.test(value) || seen.has(value)) return false;
-      seen.add(value);
-      return true;
-    });
-    for (let offset = 0; offset < issues.length; offset += 5) {
-      const fresh = await Promise.all(issues.slice(offset, offset + 5).map(async ({ id }) => {
-        const response = await api.asUser().requestJira(
-          route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`,
-          { headers: { Accept: 'application/json' } },
-        );
-        if (response.status === 403 || response.status === 404) return null;
-        if (!response.ok) throw new Error(`Hint candidate GET returned HTTP ${response.status}`);
-        const issue = await response.json();
-        const capture = issue.properties?.qualityloop;
-        if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
-        return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary };
+  try {
+    current = await budget.run(() => readProperty(issueId, 'qualityloop'));
+    if (current == null) return null;
+    if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
+    if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+    const seen = new Set([issueId]);
+    // One capped page per query. Never use search totals or search snapshots as
+    // evidence, and never let hint candidates enter the match/decision pipeline.
+    for (const jql of buildHintJql(current)) {
+      const response = await budget.run(() => api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ jql, maxResults: HINT_CANDIDATE_LIMIT, fields: ['id'] }),
       }));
-      candidates.push(...fresh.filter(Boolean));
+      if (response.status === 403 || response.status === 404) return null;
+      checkJira(response);
+      const data = await budget.run(() => response.json());
+      const issues = (data.issues ?? []).slice(0, HINT_CANDIDATE_LIMIT).filter(({ id }) => {
+        const value = String(id);
+        if (!/^\d+$/.test(value) || seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+      for (let offset = 0; offset < issues.length; offset += 5) {
+        const fresh = await Promise.all(issues.slice(offset, offset + 5).map(async ({ id }) => {
+          const response = await budget.run(() => api.asUser().requestJira(
+            route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`,
+            { headers: { Accept: 'application/json' } },
+          ));
+          if (response.status === 403 || response.status === 404) return null;
+          checkJira(response);
+          const issue = await budget.run(() => response.json());
+          const capture = issue.properties?.qualityloop;
+          if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
+          return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary };
+        }));
+        candidates.push(...fresh.filter(Boolean));
+      }
     }
+    return { applicable: true, hints: selectHints({ ...current, id: issueId }, candidates) };
+  } catch (error) {
+    if (!(error instanceof BudgetExceeded)) throw error;
+    return { applicable: true, incomplete: true, hints: current ? selectHints({ ...current, id: issueId }, candidates) : [] };
   }
-  return { applicable: true, hints: selectHints({ ...current, id: issueId }, candidates) };
 });
 
 define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {

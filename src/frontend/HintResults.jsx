@@ -10,8 +10,9 @@ export default function HintResults({ result }) {
     </Button>
     {expanded && <Stack space="space.200">
       <Text>These are hints for checking recorded details. They are not possible recurrences.</Text>
+      {result.incomplete && <Text>The hint time budget was reached. Only completed checks are shown; more hints may exist.</Text>}
       {result.error ? <Text>{result.error}</Text> : <>
-        <Text>Showing up to 3 hints from a limited search of records you can browse.</Text>
+        <Text>Showing up to 3 hints from a limited search of records you can browse (checks up to 50 recently closed CAPAs).</Text>
         {!result.hints.length && <Text>No hints found in the checked records.</Text>}
         {result.hints.map((hint) => <Box key={hint.id || hint.key} padding="space.200" backgroundColor="color.background.neutral">
           <Stack space="space.100">

@@ -118,3 +118,5 @@ Coding-agent rules are in [AGENTS.md](AGENTS.md).
 File-and-line evidence and every README correction are recorded in [T11.md](docs/tasks/T11.md).
 
 Clean-install output, repository hygiene changes and stable dependency recommendations are recorded in [T13.md](docs/tasks/T13.md). Licensed under [MIT](LICENSE).
+
+Bounded evidence loading, current distinct-NC recurrence counts, SIMULATED scale call counts, and the owner-run REAL benchmark instructions are recorded in [T14.md](docs/tasks/T14.md).

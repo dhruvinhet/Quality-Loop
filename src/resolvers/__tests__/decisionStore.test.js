@@ -1,7 +1,7 @@
 jest.mock('@forge/kvs', () => ({ ...jest.requireActual('@forge/kvs'), kvs: { entity: jest.fn(), transact: jest.fn() } }));
 const { kvs } = require('@forge/kvs');
 const { TransactionBuilderImpl } = require('@forge/kvs/out/transaction-api');
-const { commitDecision, claimTask, queryDecisions } = require('../decisionStore');
+const { commitDecision, claimTask, queryRecords, pairConfirmed } = require('../decisionStore');
 
 const payload = { capaId: '20002', expectedVersion: 0, type: 'CONFIRM', reason: 'Review evidence', evidenceLinks: [] };
 const args = { issueId: '10001', authorAccountId: 'server-account', payload, capa: {} };
@@ -47,8 +47,68 @@ test('ten races from identical expected versions each commit exactly once', asyn
     expect(results.find((r) => r.conflict).pairState.version).toBe(version + 1);
   }
   expect(records.get('pair-state/20002:10001').version).toBe(10);
+  expect(records.get('pair-state/20002:10001').confirmed).toBe(true);
+  expect([...records.keys()].filter((key) => key.startsWith('pair-state/'))).toHaveLength(1);
   expect([...records.keys()].filter((key) => key.startsWith('decision/'))).toHaveLength(10);
   expect(transact.mock.calls[2][0].set[0].conditions.and[0]).toMatchObject({ condition: 'EQUAL_TO', values: [1] });
+});
+
+test.each([
+  [['CONFIRM', 'NOT_RECURRENCE'], false],
+  [['CONFIRM', 'CONCERN'], true],
+  [['CONFIRM', 'SUPERSEDE'], true],
+  [['CONFIRM', 'NOT_RECURRENCE', 'SUPERSEDE'], false],
+])('confirmed boolean follows %j atomically and survives explanation/concern writes', async (types, confirmed) => {
+  for (let version = 0; version < types.length; version += 1) {
+    expect(await commitDecision({ ...args, payload: { ...payload, type: types[version], expectedVersion: version } })).toHaveProperty('success', true);
+  }
+  expect(records.get('pair-state/20002:10001').confirmed).toBe(confirmed);
+  const events = [...records.entries()].filter(([key]) => key.startsWith('decision/')).map(([, event]) => event.createdAt);
+  expect(new Set(events).size).toBe(types.length);
+});
+
+function mockQuery(pages) {
+  const getMany = jest.fn();
+  for (const page of pages) getMany.mockResolvedValueOnce(page);
+  const query = { index: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), sort: jest.fn().mockReturnThis(),
+    filters: jest.fn().mockReturnThis(), cursor: jest.fn().mockReturnThis(), getMany };
+  kvs.entity.mockImplementation((entity) => ({ query: () => query, get: (key) => entityGet(entity, key) }));
+  return query;
+}
+
+test('bounded history query traverses empty filter pages, sorts newest first, and discloses its cap', async () => {
+  const query = mockQuery([{ results: [], nextCursor: 'next' }, { results: [{ key: 'd', value: { type: 'CONFIRM' } }], nextCursor: 'older' }]);
+  expect(await queryRecords('decision', 'by-issue', '10001', { capaId: '20002', limit: 1 }))
+    .toEqual({ records: [{ id: 'd', type: 'CONFIRM' }], incomplete: true });
+  expect(query.sort).toHaveBeenCalledWith('DESC');
+  expect(query.filters).toHaveBeenCalled();
+  expect(query.cursor).toHaveBeenCalledWith('next');
+});
+test('bounded history stops after ten empty filter pages', async () => {
+  const query = mockQuery(Array.from({ length: 10 }, () => ({ results: [], nextCursor: 'next' })));
+  expect(await queryRecords('decision', 'by-issue', '10001', { capaId: '20002' })).toEqual({ records: [], incomplete: true });
+  expect(query.getMany).toHaveBeenCalledTimes(10);
+});
+test.each([
+  [['CONCERN', 'SUPERSEDE', 'CONFIRM'], true],
+  [['SUPERSEDE', 'NOT_RECURRENCE', 'CONFIRM'], false],
+  [['CONCERN'], false],
+])('legacy pair derives confirmation from its own history %j', async (types, confirmed) => {
+  const query = mockQuery([{ results: types.map((type, index) => ({ key: `d${index}`, value: {
+    type, capaId: '20002', issueId: '10001', createdAt: `2026-10-${String(31 - index).padStart(2, '0')}T00:00:00Z` } })) }]);
+  expect(await pairConfirmed({ version: types.length }, '20002', '10001')).toBe(confirmed);
+  expect(query.index).toHaveBeenCalledWith('by-issue', { partition: ['10001'] });
+});
+test('legacy preserving write puts derived confirmed in the same version-conditional transaction', async () => {
+  records.set('pair-state/20002:10001', { version: 2, state: 'CONCERN_RAISED' });
+  mockQuery([{ results: [{ key: 'confirm', value: { type: 'CONFIRM', capaId: '20002', issueId: '10001', createdAt: '2026-10-01T00:00:00Z' } }] }]);
+  const result = await commitDecision({ ...args, payload: { ...payload, expectedVersion: 2, type: 'SUPERSEDE' } });
+  expect(result.pairState).toMatchObject({ confirmed: true, version: 3, state: 'CONCERN_RAISED' });
+  expect(transact.mock.calls[0][0].set[0].conditions.and[0]).toMatchObject({ condition: 'EQUAL_TO', values: [2] });
+});
+test('capped legacy history with no decisive event is unavailable, never silently false', async () => {
+  mockQuery(Array.from({ length: 10 }, () => ({ results: [], nextCursor: 'older' })));
+  await expect(pairConfirmed({ version: 1000 }, '20002', '10001')).rejects.toThrow('incomplete');
 });
 test('stale version returns current pair state without a transaction', async () => {
   records.set('pair-state/20002:10001', { version: 5, state: 'NOT_RECURRENCE' });
@@ -78,13 +138,4 @@ test('follow-up can only be claimed once even across simultaneous requests', asy
   const result = await Promise.all([claimTask(id, decision), claimTask(id, decision)]);
   expect(result.filter(Boolean)).toHaveLength(1);
   expect(result.filter((r) => r === null)).toHaveLength(1);
-});
-test('history index traverses cursors, including an empty intermediate page', async () => {
-  const getMany = jest.fn().mockResolvedValueOnce({ results: [], nextCursor: 'next' })
-    .mockResolvedValueOnce({ results: [{ key: 'id', value: { reason: 'Review' } }] });
-  const query = { index: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), cursor: jest.fn().mockReturnThis(), getMany };
-  kvs.entity.mockReturnValue({ query: () => query });
-  expect(await queryDecisions('by-issue', '10001')).toEqual([{ id: 'id', reason: 'Review' }]);
-  expect(query.index).toHaveBeenCalledWith('by-issue', { partition: ['10001'] });
-  expect(query.cursor).toHaveBeenCalledWith('next');
 });

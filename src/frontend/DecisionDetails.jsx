@@ -86,7 +86,7 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
   const eligible = data?.concernAllowed ?? (pairState?.state === 'CONFIRMED' || !match.effectivenessEvidenceUrl?.trim());
   return <Stack space="space.100">
     <Text><Lozenge>{pairState ? STATE_LABELS[pairState.state] : 'Decision state unavailable'}</Lozenge></Text>
-    {data && <Text>{`Engineer-confirmed recurrence count since closure: ${data.confirmedCount} (may take a few seconds to update)`}</Text>}
+    {data && <Text>{`NCs currently confirmed as recurrences of this CAPA: ${data.confirmedCount}${data.confirmedCountIncomplete && data.confirmedCount !== '50+' ? '+ (limited check; total unavailable)' : ''} (may take a few seconds to update)`}</Text>}
     {!data && <Text>Decision state and history are loading or unavailable.</Text>}
     {!readOnly && <>
       <Button isDisabled={!ready || busy} onClick={() => open('CONFIRM')}>Engineer-confirmed recurrence</Button>
@@ -97,6 +97,7 @@ export default function DecisionDetails({ match, data, readOnly, ready, onChange
     </>}
     {message && <Text>{message}</Text>}
     <Text>Decision history</Text>
+    {data?.historyIncomplete && <Text>Older decisions not shown</Text>}
     {data && !data.history.length && <Text>No decisions recorded.</Text>}
     {(data?.history ?? []).map((item) => <Stack key={item.id} space="space.050">
       <Text>{`${item.authorDisplayName} · ${item.createdAt.slice(0, 10)} · ${TYPE_LABELS[item.type] ?? item.type}${item.id === pairState?.latestDecisionId ? ' · Latest' : ''}`}</Text>

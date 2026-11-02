@@ -102,6 +102,8 @@ app:
             type: integer
           state:
             type: string
+          confirmed:
+            type: boolean
           latestDecisionId:
             type: string
           updatedAt:
