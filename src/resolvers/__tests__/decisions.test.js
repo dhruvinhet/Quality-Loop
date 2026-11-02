@@ -245,13 +245,16 @@ function withAssignee(owner, { rejected = false, changedOwner = false } = {}) {
   });
 }
 
-test('confirmation lists CAPA owner; creation assigns at creation and reports actual ownership', async () => {
-  withAssignee({ accountId: 'owner', displayName: 'CAPA Owner' });
+test.each(['CAPA Owner', undefined, null, '', '   '])('confirmation and success show the CAPA owner name (%s) without its account ID', async (displayName) => {
+  withAssignee({ accountId: 'private-owner-id', displayName });
+  const label = displayName?.trim() || "the CAPA's current assignee";
   const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
-  expect(proposal.confirmation).toContain('Intended assignee: CAPA Owner (owner)');
+  expect(proposal.confirmation).toContain(`Intended assignee: ${label}.`);
+  expect(JSON.stringify(proposal)).not.toContain('private-owner-id');
   const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: proposal.confirmation } });
-  expect(result.message).toContain('assigned to CAPA Owner');
-  expect(JSON.parse(requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issue')[1].body).fields.assignee).toEqual({ accountId: 'owner' });
+  expect(result.message).toContain(`assigned to ${label}.`);
+  expect(JSON.stringify(result)).not.toContain('private-owner-id');
+  expect(JSON.parse(requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issue')[1].body).fields.assignee).toEqual({ accountId: 'private-owner-id' });
 });
 
 test('definitive assignee rejection retries unassigned under the same durable claim', async () => {
@@ -271,8 +274,8 @@ test.each([403, 429, 500, 503])('assignment creation HTTP %i never causes an aut
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(1);
 });
 
-test('a changed owner invalidates confirmation before claim or creation', async () => {
-  const owner = { accountId: 'owner', displayName: 'CAPA Owner' };
+test.each(['CAPA Owner', 'New owner'])('a changed owner invalidates confirmation before claim or creation, including matching names (%s)', async (displayName) => {
+  const owner = { accountId: 'owner', displayName };
   withAssignee(owner, { changedOwner: true });
   expect(await handler.createConcernTask({ context, payload: { ...followup, confirmation: followupConfirmation('QL', 'QL-20002', owner) } }))
     .toHaveProperty('error', expect.stringContaining('assignee changed'));

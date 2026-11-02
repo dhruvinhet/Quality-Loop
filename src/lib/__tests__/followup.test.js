@@ -17,7 +17,14 @@ test('direct recovery requires exact summary, same project and creation strictly
 });
 test('confirmations list the intended ownership and the separate recovery write', () => {
   expect(followupConfirmation('QL', 'QL-2')).toContain('Intended assignee: unassigned');
-  expect(followupConfirmation('QL', 'QL-2', { accountId: 'owner-id', displayName: 'CAPA Owner' })).toContain('CAPA Owner (owner-id)');
+  const named = followupConfirmation('QL', 'QL-2', { accountId: 'owner-id', displayName: 'CAPA Owner' });
+  expect(named).toContain('Intended assignee: CAPA Owner.');
+  expect(named).not.toContain('owner-id');
+  for (const displayName of [undefined, null, '', '   ']) {
+    const unnamed = followupConfirmation('QL', 'QL-2', { accountId: 'owner-id', displayName });
+    expect(unnamed).toContain("Intended assignee: the CAPA's current assignee.");
+    expect(unnamed).not.toContain('owner-id');
+  }
   expect(followupConfirmation('QL', 'QL-2')).toContain('If Jira rejects the assignee, create unassigned');
   expect(recoveryConfirmation('QL-3', 'QL-2')).toBe('Record QL-3 as the follow-up task for the recorded effectiveness concern on QL-2.');
 });

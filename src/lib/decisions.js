@@ -72,6 +72,6 @@ export function confirmedFromHistory(history) {
   return decisive ? decisive.type === 'CONFIRM' : false;
 }
 export function followupConfirmation(project, capaKey, assignee) {
-  const intended = assignee?.accountId ? `${assignee.displayName || 'CAPA assignee'} (${assignee.accountId})` : 'unassigned';
+  const intended = assignee?.accountId ? assignee.displayName?.trim() || "the CAPA's current assignee" : 'unassigned';
   return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}. Intended assignee: ${intended}. If Jira rejects the assignee, create unassigned.`;
 }

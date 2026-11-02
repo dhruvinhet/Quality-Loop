@@ -298,7 +298,9 @@ export function registerDecisionResolvers({ define, findMatches }) {
       if (freshCapa.fields?.project?.id !== project.id || freshCapa.key !== capa.key) {
         return { error: 'Recorded. The CAPA project or key changed. Open a new follow-up confirmation.' };
       }
-      if (followupConfirmation(project.key, capa.key, freshCapa.fields?.assignee) !== confirmation) {
+      // Keep the identity recheck even when two assignees share a display name.
+      if (freshCapa.fields?.assignee?.accountId !== capa.fields?.assignee?.accountId ||
+          followupConfirmation(project.key, capa.key, freshCapa.fields?.assignee) !== confirmation) {
         return { error: 'Recorded. The intended assignee changed. Open a new follow-up confirmation.' };
       }
       if (!await canEdit(issueId)) return deniedEdit();
@@ -334,7 +336,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
       });
       if (!linked.ok) return { error: 'Recorded. Follow-up linking could not finish. Check Jira before creating another task.' };
       const assignee = createdTask.fields?.assignee;
-      const ownership = assignee?.accountId ? `assigned to ${assignee.displayName || assignee.accountId}` : 'unassigned';
+      const ownership = assignee?.accountId ? `assigned to ${assignee.displayName?.trim() || "the CAPA's current assignee"}` : 'unassigned';
       return { message: `Recorded. Created ${taskKey} and linked it to ${capa.key}; ${ownership}.` };
     } catch {
       console.error('QualityLoop concern follow-up failed.');
