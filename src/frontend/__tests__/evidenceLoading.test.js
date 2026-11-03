@@ -55,6 +55,25 @@ test('each capped signature class discloses unchecked candidates without claimin
   expect(tree).not.toContain('No closed CAPA with this part and failure mode in the last 365 days');
 });
 
+test('unchecked candidates and omitted verified matches have separate lines per class', () => {
+  const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
+    uncheckedCandidates: true, notShown: { strong: 7, relatedRevision: 3 }, verifiedNotShown: { strong: 2, relatedRevision: 4 } } }));
+  expect(tree).toContain('7 more candidates not checked (most recent 25 verified matches shown).');
+  expect(tree).toContain('3 more candidates not checked (most recent 25 verified matches shown).');
+  expect(tree).toContain('2 more verified matches not shown (most recent 25 shown)');
+  expect(tree).toContain('4 more verified matches not shown (most recent 25 shown)');
+  expect(tree).not.toContain('No closed CAPA with this part and failure mode in the last 365 days');
+});
+
+test('verified omissions alone also prevent definitive no-match text', () => {
+  const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
+    uncheckedCandidates: true, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 1 } } }));
+  expect(tree).toContain('1 more verified matches not shown (most recent 25 shown)');
+  expect(tree).toContain('No exact signature match found in the completed checks.');
+  expect(tree).not.toContain('No closed CAPA with this part and failure mode in the last 365 days');
+  expect(tree.some((node) => typeof node === 'string' && node.includes('more candidates not checked'))).toBe(false);
+});
+
 test('unconfirmed follow-up offers a check and makes no write by merely displaying history', async () => {
   const tree = nodes(DecisionDetails({ match: { id: '2' }, readOnly: true, data: {
     pairState: { version: 1, state: 'CONCERN_RAISED' }, history: [{ id: 'decision', type: 'CONCERN', reason: 'Review',

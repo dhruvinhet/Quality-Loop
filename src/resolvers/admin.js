@@ -5,10 +5,29 @@ import { visibleRecords, RECORD_ENTITIES } from '../lib/cleanup';
 import { backfillPair, recordPage } from './cleanupStore';
 import { pageDefine, readTicket, requireAdmin, saveTicket, userJira, validCursor } from './pageUtils';
 import { removableSample } from '../lib/sampleScenario';
+import { HEALTH_PREFIX, initialHealth, withHealthTicket, scanHealthPage, removeHealthPage } from './dataHealthStore';
 
 const resolver = new Resolver();
 // Jira 404 means missing OR unbrowsable. It is never proof of deletion.
 const existence = (id) => userJira(route`/rest/api/3/issue/${id}?fields=id`);
+
+pageDefine(resolver, 'startDataHealthCheck', [], async (context) => {
+  if (!await requireAdmin(context)) return null;
+  return { token: await saveTicket(HEALTH_PREFIX, context, initialHealth()) };
+});
+pageDefine(resolver, 'checkOrphanPage', ['token'], async (context, { token }) => {
+  if (!await requireAdmin(context)) return null;
+  return withHealthTicket(context, token, (state) => scanHealthPage(token, state));
+});
+pageDefine(resolver, 'removeOrphanPage', ['token', 'confirmed', 'expectedCount'], async (context, { token, confirmed, expectedCount }) => {
+  if (!await requireAdmin(context)) return null;
+  return withHealthTicket(context, token, (state) => {
+    if (confirmed !== true || !state.scanComplete || expectedCount !== state.found) {
+      return { error: 'Complete the check and confirm the displayed record count before removing records.' };
+    }
+    return removeHealthPage(token, state);
+  });
+});
 
 // Re-fetch registered NCs as the viewer before returning checklist links.
 pageDefine(resolver, 'sampleNcLinks', ['cursor'], async (context, { cursor }) => {

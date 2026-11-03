@@ -27,3 +27,15 @@ export async function scanRecordPages(visit) {
     } while (cursor);
   }
 }
+
+// Bound browser work as well as each resolver invocation. Resume uses the same
+// account-bound server ticket; cumulative counts make lost responses safe to retry.
+export async function runHealthPages(visit, completeField, onProgress, maxPages = 20) {
+  let result;
+  for (let page = 0; page < maxPages; page += 1) {
+    result = await visit();
+    onProgress(result);
+    if (result[completeField] || result.paused) break;
+  }
+  return result;
+}

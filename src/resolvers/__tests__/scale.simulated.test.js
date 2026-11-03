@@ -143,16 +143,53 @@ test.each(['strong', 'relatedRevision'])('SIMULATED reclassification into %s ret
   expect(authorised.size).toBe(25);
   // Only unread snapshot candidates count as unchecked, never completed moves.
   expect(result.notShown).toEqual(destination === 'strong' ? { strong: 5, relatedRevision: 0 } : { strong: 0, relatedRevision: 30 });
+  expect(result.verifiedNotShown[destination]).toBe(destination === 'strong' ? 30 : 5);
+  expect(result.uncheckedCandidates).toBe(true);
   const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
   expect(new Set(directIds).size).toBe(directIds.length);
   expect(sourceRows.slice(25).every(({ id }) => undisplayed.has(id))).toBe(true);
 });
 
-test('SIMULATED a signature re-read outside both signature classes is still excluded', async () => {
+test('SIMULATED a signature re-read can move to other related', async () => {
   seed(5);
   changed.set('100', issue(100, { ...corpus[0].properties.qualityloop, failureMode: 'FM-02' }));
   const result = await handler.loadEvidence({ context });
-  expect([...result.strong, ...result.relatedRevision, ...result.otherRelated].some(({ id }) => id === '100')).toBe(false);
+  expect(result.strong.some(({ id }) => id === '100')).toBe(false);
+  expect(result.otherRelated.some(({ id }) => id === '100')).toBe(true);
+});
+
+test.each(['strong', 'relatedRevision'])('SIMULATED other-related query candidate moves to fresh %s with decision state', async (destination) => {
+  seed(5);
+  changed.set('102', issue(102, { ...corpus[2].properties.qualityloop, failureMode: 'FM-01',
+    partOriginal: destination === 'strong' ? 'P-4471-A' : 'P-4471-B' }));
+  const result = await handler.loadEvidence({ context });
+  expect(result[destination].some(({ id }) => id === '102')).toBe(true);
+  expect(result.otherRelated.some(({ id }) => id === '102')).toBe(false);
+  expect(result.pairs).toHaveProperty('102');
+  expect(requestJira.mock.calls.filter(([path]) => path.includes('/issue/102?'))).toHaveLength(1);
+  expect(result).toMatchObject({ uncheckedCandidates: false, verifiedNotShown: { strong: 0, relatedRevision: 0 } });
+});
+
+test.each([['strong', 0], ['strong', 5], ['relatedRevision', 0], ['relatedRevision', 5]])(
+  'SIMULATED fresh %s into a full class with %i unchecked counts verified omissions separately', async (destination, unread) => {
+  const signatureCount = 25 + unread;
+  const movedId = String(100 + signatureCount);
+  corpus = Array.from({ length: signatureCount }, (_, i) => issue(100 + i, { ...nc, recordType: 'CAPA',
+    partOriginal: destination === 'strong' ? 'P-4471-A' : 'P-4471-B', closedDate: '2026-10-20' }));
+  // The other-related query's fresh match is older than the 25 already
+  // verified. Verified omissions alone must also mark the results incomplete.
+  corpus.push(issue(movedId, { ...nc, recordType: 'CAPA', failureMode: 'FM-02', closedDate: '2026-10-01' }));
+  changed.set(movedId, issue(movedId, { ...corpus[0].properties.qualityloop, closedDate: '2026-10-01' }));
+  const authorised = new Map(), undisplayed = new Set();
+  const result = await findMatches('1', loadBudget(), authorised, undisplayed);
+  expect(result[destination]).toHaveLength(25);
+  expect(result[destination].some(({ id }) => id === movedId)).toBe(false);
+  expect(result.notShown[destination]).toBe(unread);
+  expect(result.verifiedNotShown[destination]).toBe(1);
+  expect(result.uncheckedCandidates).toBe(true);
+  expect(undisplayed.has(movedId)).toBe(true);
+  expect(authorised.has(movedId)).toBe(false);
+  expect(requestJira.mock.calls.filter(([path]) => path.includes(`/issue/${movedId}?`))).toHaveLength(1);
 });
 
 test('SIMULATED cards use the fresh Jira status category while matching on recorded closure', async () => {

@@ -20,7 +20,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
   const started = Date.now();
   const result = { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
     matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false,
-    notShown: { strong: 0, relatedRevision: 0 } };
+    notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 } };
   const unchecked = new Map();
   try {
     const response = await budget.run(() => api.asUser().requestJira(
@@ -33,9 +33,9 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
     if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
     const nc = { ...current, id: issueId };
     const seen = new Set([issueId]);
-    const queries = [[buildMatchJql(current), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete', ['strong', 'relatedRevision']],
-      ...buildOtherRelatedJql(current).map((jql) => [jql, OTHER_RELATED_LIMIT, 'otherRelatedIncomplete', ['otherRelated']])];
-    for (const [jql, limit, flag, allowed] of queries) {
+    const queries = [[buildMatchJql(current), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete'],
+      ...buildOtherRelatedJql(current).map((jql) => [jql, OTHER_RELATED_LIMIT, 'otherRelatedIncomplete'])];
+    for (const [jql, limit, flag] of queries) {
       let token;
       let fetched = 0;
       let pages = 0;
@@ -55,7 +55,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
           if (!/^\d+$/.test(id) || seen.has(id)) continue;
           seen.add(id);
           const classified = matchCaptures(nc, [issueCapture(issue)]);
-          for (const kind of allowed) if (classified[kind].length) {
+          for (const kind of classes) if (classified[kind].length) {
             selected.push({ id, kind, match: classified[kind][0] });
             if (kind !== 'otherRelated') unchecked.set(id, kind);
           }
@@ -70,7 +70,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
       } while (token);
       // Track candidates from this asUser snapshot only, never a Jira total.
       // A candidate is not a verified match until its direct read completes.
-      const sortedClasses = allowed.map((kind) => [kind, selected.filter((item) => item.kind === kind)
+      const sortedClasses = classes.map((kind) => [kind, selected.filter((item) => item.kind === kind)
         .sort((a, b) => b.match.closedDate.localeCompare(a.match.closedDate) || a.match.key.localeCompare(b.match.key))]);
       for (const [kind, sorted] of sortedClasses) {
         const limit = kind === 'otherRelated' ? result[kind].length + sorted.length : MATCH_DISPLAY_LIMIT;
@@ -88,7 +88,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
             unchecked.delete(id);
             if (String(issue.id) !== id) return null;
             const classified = matchCaptures(nc, [issueCapture(issue)]);
-            const freshKind = allowed.find((name) => classified[name].length);
+            const freshKind = classes.find((name) => classified[name].length);
             return freshKind ? { issue, kind: freshKind, match: classified[freshKind][0] } : null;
           }));
           for (const settled of batch) {
@@ -101,6 +101,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
               // newest verified matches without exceeding the per-class cap.
               result[item.kind].sort((a, b) => b.closedDate.localeCompare(a.closedDate) || a.key.localeCompare(b.key));
               for (const omitted of result[item.kind].splice(MATCH_DISPLAY_LIMIT)) {
+                result.verifiedNotShown[item.kind] += 1;
                 authorised.delete(omitted.id);
                 undisplayed.add(omitted.id);
               }
@@ -119,7 +120,9 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
     result.notShown[kind] += 1;
     undisplayed.add(id);
   }
-  result.uncheckedCandidates = unchecked.size > 0;
+  // This completeness flag also covers verified omissions: neither case permits
+  // a definitive no-match statement. The two displayed counts stay separate.
+  result.uncheckedCandidates = unchecked.size > 0 || Object.values(result.verifiedNotShown).some((count) => count > 0);
   for (const kind of classes) result[kind].sort((a, b) => b.closedDate.localeCompare(a.closedDate) || a.key.localeCompare(b.key));
   return { ...result, elapsedMs: Date.now() - started };
 }

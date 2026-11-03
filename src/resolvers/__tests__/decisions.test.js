@@ -25,6 +25,8 @@ const concern = { issueId: '10001', capaId: '20002', type: 'CONCERN', reason: 'R
   authorAccountId: 'server-account', evidenceLinks: [], createdAt: '2026-10-31T12:00:00.000Z' };
 const { followupConfirmation } = require('../../lib/decisions');
 const followup = { capaId: '20002', decisionId, confirmation: followupConfirmation('QL', 'QL-20002') };
+const markerToken = 'a0b1c2d3e4f56789a0b1c2d3e4f56789';
+const opaqueMarker = { schemaVersion: 2, token: markerToken };
 let edit;
 let create;
 let hidden;
@@ -33,10 +35,12 @@ let current;
 let searchIds;
 let createStatus;
 let linkStatus;
+let createdProperties;
 beforeEach(() => {
   jest.clearAllMocks();
   api.asUser.mockReturnValue({ requestJira });
   edit = true; create = true; hidden = new Set(); captured = capa; current = nc; searchIds = ['20002']; createStatus = 201; linkStatus = 201;
+  createdProperties = {};
   requestJira.mockImplementation(async (path, options) => {
     if (path.includes('mypermissions')) return response(200, { permissions: {
       EDIT_ISSUES: { havePermission: edit }, CREATE_ISSUES: { havePermission: create } } });
@@ -45,11 +49,18 @@ beforeEach(() => {
     if (path.startsWith('/rest/api/3/user?')) return response(200, { displayName: 'Engineer' });
     if (path.startsWith('/rest/api/3/issue/createmeta/')) return response(200, { issueTypes: [{ id: '987', name: 'Task', subtask: false }], total: 1 });
     if (path === '/rest/api/3/issueLinkType') return response(200, { issueLinkTypes: [{ id: 'relates-id', name: 'Relates', inward: 'relates to', outward: 'relates to' }] });
-    if (path === '/rest/api/3/issue' && options.method === 'POST') return response(createStatus, { id: '30003', key: 'QL-30003' });
+    if (path === '/rest/api/3/issue' && options.method === 'POST') {
+      if (createStatus === 201) createdProperties = Object.fromEntries(JSON.parse(options.body).properties.map(({ key, value }) => [key, value]));
+      return response(createStatus, { id: '30003', key: 'QL-30003' });
+    }
     if (path === '/rest/api/3/issueLink') return response(linkStatus);
     const id = path.match(/^\/rest\/api\/3\/issue\/([^?]+)/)?.[1];
     if (hidden.has(id)) return response(403, { secret: 'hidden' });
-    if (id) return response(200, issue(id, id === '10001' ? current : captured));
+    if (id) {
+      const data = issue(id, id === '10001' ? current : captured);
+      if (id === '30003') data.properties = { ...data.properties, ...createdProperties };
+      return response(200, data);
+    }
     throw new Error(`Unexpected API path ${path}`);
   });
   store.getPairState.mockResolvedValue({ version: 0, state: 'NONE' });
@@ -57,7 +68,8 @@ beforeEach(() => {
   store.queryRecords.mockResolvedValue({ records: [], incomplete: false });
   store.pairConfirmed.mockImplementation(async (state) => state.confirmed === true);
   store.readDecision.mockResolvedValue(concern);
-  store.claimTask.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: '2026-10-31T12:01:00.000Z', taskMarkerVersion: 1 });
+  store.claimTask.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: '2026-10-31T12:01:00.000Z',
+    taskMarkerVersion: 2, taskMarkerToken: markerToken });
   store.saveTaskMetadata.mockResolvedValue();
   store.saveTaskLinked.mockResolvedValue(true);
   jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -187,7 +199,8 @@ test('no create permission retains the recorded concern and shows the specified 
 test('confirmed follow-up creates a project-specific Task and relates-to link asUser', async () => {
   expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('message', 'Recorded. Created QL-30003 and linked it to QL-20002; unassigned.');
   const post = requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issue');
-  expect(JSON.parse(post[1].body)).toEqual({ fields: { project: { id: '123' }, issuetype: { id: '987' }, summary: 'Effectiveness re-review: QL-20002', assignee: null } });
+  expect(JSON.parse(post[1].body)).toEqual({ fields: { project: { id: '123' }, issuetype: { id: '987' }, summary: 'Effectiveness re-review: QL-20002', assignee: null },
+    properties: [{ key: 'qualityloop-followup', value: opaqueMarker }] });
   expect(store.saveTaskMetadata).toHaveBeenCalledWith(decisionId, expect.objectContaining({ taskKey: 'QL-30003', reason: concern.reason }));
   const link = requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issueLink');
   expect(JSON.parse(link[1].body)).toEqual({ type: { id: 'relates-id' }, outwardIssue: { id: '30003' }, inwardIssue: { id: '20002' } });
@@ -462,16 +475,18 @@ test('a hanging essential pair-state read stays unavailable while completed card
   } finally { jest.useRealTimers(); }
 });
 
-test('creation saves the task key, writes the task correlation marker, links, then records link completion', async () => {
+test('creation includes the durable opaque marker, verifies it without another write, links, then records link completion', async () => {
   const result = await handler.createConcernTask({ context, payload: followup });
   expect(result.message).toContain('Created QL-30003 and linked');
-  const markerIndex = requestJira.mock.calls.findIndex(([path]) => path === '/rest/api/3/issue/30003/properties/qualityloop-followup');
-  const [, markerOptions] = requestJira.mock.calls[markerIndex];
-  expect(markerOptions.method).toBe('PUT');
-  expect(JSON.parse(markerOptions.body)).toEqual({ schemaVersion: 1, decisionId, capaId: '20002', ncId: '10001', claimedAt });
+  const createIndex = requestJira.mock.calls.findIndex(([path]) => path === '/rest/api/3/issue');
+  expect(JSON.parse(requestJira.mock.calls[createIndex][1].body).properties).toEqual([{ key: 'qualityloop-followup', value: opaqueMarker }]);
+  expect(requestJira.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false);
+  const verifyIndex = requestJira.mock.calls.findIndex(([path]) => path.startsWith('/rest/api/3/issue/30003?') && path.includes('properties=qualityloop-followup'));
+  expect(verifyIndex).toBeGreaterThan(createIndex);
   const linkIndex = requestJira.mock.calls.findIndex(([path]) => path === '/rest/api/3/issueLink');
-  expect(store.saveTaskMetadata.mock.invocationCallOrder[0]).toBeLessThan(requestJira.mock.invocationCallOrder[markerIndex]);
-  expect(requestJira.mock.invocationCallOrder[markerIndex]).toBeLessThan(requestJira.mock.invocationCallOrder[linkIndex]);
+  expect(store.claimTask.mock.invocationCallOrder[0]).toBeLessThan(requestJira.mock.invocationCallOrder[createIndex]);
+  expect(store.saveTaskMetadata.mock.invocationCallOrder[0]).toBeLessThan(requestJira.mock.invocationCallOrder[verifyIndex]);
+  expect(requestJira.mock.invocationCallOrder[verifyIndex]).toBeLessThan(requestJira.mock.invocationCallOrder[linkIndex]);
   expect(requestJira.mock.invocationCallOrder[linkIndex]).toBeLessThan(store.saveTaskLinked.mock.invocationCallOrder[0]);
   expect(store.saveTaskLinked).toHaveBeenCalledWith(decisionId, expect.objectContaining({ taskKey: 'QL-30003', taskClaimId: 'claim' }));
 });
@@ -601,13 +616,17 @@ test('repair can finish a failed marker write only when that write is listed and
   expect(requestJira.mock.calls.filter(([path, options]) => path.endsWith('/properties/qualityloop-followup') && options.method === 'PUT')).toHaveLength(1);
 });
 
-test('marker failure after creation preserves the key, skips linking and cannot create a replacement', async () => {
+test('fallback marker failure after Jira ignores create properties preserves the key, skips linking and cannot create a replacement', async () => {
   const original = requestJira.getMockImplementation();
-  requestJira.mockImplementation(async (path, options) => path.endsWith('/properties/qualityloop-followup')
-    ? response(500, {}) : original(path, options));
+  requestJira.mockImplementation(async (path, options) => {
+    if (path.endsWith('/properties/qualityloop-followup')) return response(500, {});
+    const result = await original(path, options);
+    if (path === '/rest/api/3/issue') createdProperties = {};
+    return result;
+  });
   expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('error');
   const saved = store.saveTaskMetadata.mock.calls[0][1];
-  expect(saved).toMatchObject({ taskKey: 'QL-30003', taskMarkerVersion: 1 });
+  expect(saved).toMatchObject({ taskKey: 'QL-30003', taskMarkerVersion: 2, taskMarkerToken: markerToken });
   expect(store.saveTaskLinked).not.toHaveBeenCalled();
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issueLink')).toHaveLength(0);
   store.readDecision.mockResolvedValue(saved);
@@ -620,4 +639,88 @@ test('wrong-marker and unmarked candidates cannot make one correctly marked new 
   recoveryScenario(rows);
   store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: claimedAt, taskMarkerVersion: 1 });
   expect(await handler.checkConcernTask({ context, payload: { capaId: '20002', decisionId } })).toHaveProperty('task', { id: '30003', key: 'QL-30003' });
+});
+
+test('recovery finds the create-time token after a lost create response with no taskKey stored', async () => {
+  let durable = concern;
+  const claimed = await store.claimTask.getMockImplementation()();
+  store.claimTask.mockImplementation(async () => { durable = claimed; return claimed; });
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, options) => {
+    if (path === '/rest/api/3/issue') {
+      expect(durable.taskMarkerToken).toBe(markerToken);
+      await original(path, options); // Jira commits the task and its property.
+      throw new Error('Create response lost');
+    }
+    return original(path, options);
+  });
+  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('error');
+  expect(durable.taskKey).toBeUndefined();
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+  expect(createdProperties).toEqual({ 'qualityloop-followup': opaqueMarker });
+  const task = { ...recoveryTask(), properties: createdProperties };
+  recoveryScenario([task]);
+  store.readDecision.mockImplementation(async () => durable);
+  const proposal = await handler.checkConcernTask({ context, payload: repairPayload });
+  expect(proposal.task).toEqual({ id: '30003', key: 'QL-30003' });
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+  expect(await handler.confirmConcernTask({ context, payload: { ...repairPayload,
+    taskId: proposal.task.id, confirmation: proposal.confirmation } })).toHaveProperty('taskKey', 'QL-30003');
+  expect(store.saveTaskMetadata).toHaveBeenCalledWith(decisionId, expect.objectContaining({ taskMarkerToken: markerToken, taskKey: 'QL-30003' }));
+  expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(1);
+  expect(store.claimTask).toHaveBeenCalledTimes(1);
+});
+
+test.each([null, { schemaVersion: 2, token: 'f'.repeat(32) }, { schemaVersion: 2 },
+  { schemaVersion: 1, decisionId, capaId: '20002', ncId: '10001', claimedAt }])(
+  'v2 recovery rejects a same-summary task without the exact stored token: %j', async (marker) => {
+    const task = { ...recoveryTask(), properties: marker ? { 'qualityloop-followup': marker } : {} };
+    recoveryScenario([task]);
+    store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: claimedAt,
+      taskMarkerVersion: 2, taskMarkerToken: markerToken });
+    expect(await handler.checkConcernTask({ context, payload: repairPayload }))
+      .toHaveProperty('message', expect.stringContaining('No visible matching task'));
+    expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+    expect(store.claimTask).not.toHaveBeenCalled();
+  });
+
+test('v2 recovery rechecks the token before recording the confirmed task', async () => {
+  const task = { ...recoveryTask(), properties: { 'qualityloop-followup': { ...opaqueMarker } } };
+  recoveryScenario([task]);
+  store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: claimedAt,
+    taskMarkerVersion: 2, taskMarkerToken: markerToken });
+  const proposal = await handler.checkConcernTask({ context, payload: repairPayload });
+  task.properties['qualityloop-followup'].token = 'f'.repeat(32);
+  expect(await handler.confirmConcernTask({ context, payload: { ...repairPayload, taskId: '30003', confirmation: proposal.confirmation } }))
+    .toHaveProperty('message', expect.stringContaining('No visible matching task'));
+  expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+});
+
+test('a verified absence after create permits the fallback opaque marker write before linking', async () => {
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, options) => {
+    const result = await original(path, options);
+    if (path === '/rest/api/3/issue') createdProperties = {};
+    return result;
+  });
+  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('message', expect.stringContaining('Created QL-30003'));
+  const verifyIndex = requestJira.mock.calls.findIndex(([path]) => path.startsWith('/rest/api/3/issue/30003?'));
+  const markerIndex = requestJira.mock.calls.findIndex(([path]) => path.endsWith('/properties/qualityloop-followup'));
+  const linkIndex = requestJira.mock.calls.findIndex(([path]) => path === '/rest/api/3/issueLink');
+  expect(verifyIndex).toBeLessThan(markerIndex);
+  expect(markerIndex).toBeLessThan(linkIndex);
+  expect(JSON.parse(requestJira.mock.calls[markerIndex][1].body)).toEqual(opaqueMarker);
+});
+
+test('a conflicting create-time property is never overwritten or linked', async () => {
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, options) => {
+    const result = await original(path, options);
+    if (path === '/rest/api/3/issue') createdProperties = { 'qualityloop-followup': { schemaVersion: 2, token: 'f'.repeat(32) } };
+    return result;
+  });
+  expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('error', expect.stringContaining('marker could not be verified'));
+  expect(requestJira.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false);
+  expect(requestJira.mock.calls.some(([path]) => path === '/rest/api/3/issueLink')).toBe(false);
+  expect(store.saveTaskLinked).not.toHaveBeenCalled();
 });

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { kvs, Filter, FilterConditions, Sort } from '@forge/kvs';
 import { confirmedAfter, confirmedFromHistory, decisionKey, emptyPairState, nextState, pairKey } from '../lib/decisions';
 import { loadBudget } from './loadBudget';
@@ -98,7 +98,8 @@ export async function pairConfirmed(pair, capaId, issueId, budget = loadBudget()
 // There is no automatic retry after an ambiguous Jira response.
 export async function claimTask(id, decision) {
   const taskClaimId = randomUUID();
-  const claimed = { ...decision, taskClaimId, taskClaimedAt: new Date().toISOString(), taskMarkerVersion: 1 };
+  const claimed = { ...decision, taskClaimId, taskClaimedAt: new Date().toISOString(),
+    taskMarkerVersion: 2, taskMarkerToken: randomBytes(16).toString('hex') };
   try {
     await kvs.transact().set(id, claimed, { entityName: DECISION_ENTITY,
       conditions: new Filter().and('taskClaimId', FilterConditions.notExists()) }).execute();

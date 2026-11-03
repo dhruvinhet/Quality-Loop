@@ -335,7 +335,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
     if (hasMarker && !recoveryMarkerKind(task, payload.decisionId, result.decision)) {
       return { error: 'This task has a different QualityLoop marker. Check Jira manually; no link was written.' };
     }
-    const writeMarker = result.decision.taskMarkerVersion === 1 && !hasMarker;
+    const writeMarker = [1, 2].includes(result.decision.taskMarkerVersion) && !hasMarker;
     const confirmation = repairLinkConfirmation(task.key, result.capa.key, { writeMarker, legacy: !hasMarker && !writeMarker });
     return { ...result, task, writeMarker, confirmation };
   }
@@ -409,8 +409,9 @@ export function registerDecisionResolvers({ define, findMatches }) {
       const intendedAssignee = freshCapa.fields?.assignee;
       const fields = { project: { id: project.id }, issuetype: { id: taskType.id }, summary: `Effectiveness re-review: ${capa.key}`,
         assignee: intendedAssignee?.accountId ? { accountId: intendedAssignee.accountId } : null };
+      const properties = [{ key: FOLLOWUP_PROPERTY, value: followupMarker(payload.decisionId, claimed) }];
       const create = () => api.asUser().requestJira(route`/rest/api/3/issue`, {
-        method: 'POST', headers, body: JSON.stringify({ fields }),
+        method: 'POST', headers, body: JSON.stringify({ fields, properties }),
       });
       let response = await create();
       // Retry only a definitive validation rejection of assignee. Never retry
@@ -427,9 +428,15 @@ export function registerDecisionResolvers({ define, findMatches }) {
         return { error: 'Recorded. Follow-up metadata changed. Check the decision history before continuing.' };
       }
       // The server-generated task ID is still checked asUser before linking.
-      const createdTask = await getIssue(task.id);
+      const createdTask = await getFollowupTask(task.id);
       if (!createdTask || !await getIssue(payload.capaId)) return null;
-      if (!await setFollowupMarker(task.id, payload.decisionId, claimed)) return null;
+      if (!Object.hasOwn(createdTask.properties ?? {}, FOLLOWUP_PROPERTY)) {
+        // Jira may ignore create-time properties. Only repair a verified absence;
+        // a present conflicting marker must never be overwritten.
+        if (!await setFollowupMarker(task.id, payload.decisionId, claimed)) return null;
+      } else if (!recoveryMarkerKind(createdTask, payload.decisionId, claimed)) {
+        return { error: 'Recorded. The new task marker could not be verified. Check Jira before continuing.' };
+      }
       const linked = await linkTask(task, capa, linkType);
       if (!linked.ok) return { error: 'Recorded. Follow-up linking could not finish. Check Jira before creating another task.' };
       if (!await saveTaskLinked(payload.decisionId, { ...claimed, taskKey })) {

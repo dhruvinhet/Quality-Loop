@@ -51,14 +51,14 @@ flowchart LR
   P -->|invoke after concern; create only after confirmation| T["prepareConcernTask / createConcernTask<br/>index.handler"]
   T -->|asUser| F["POST /rest/api/3/issue<br/>POST /rest/api/3/issueLink"]
   T -->|claimTask / saveTaskMetadata| K
-  D["trigger: qualityloop-issue-deleted<br/>issue-deleted → index.onIssueDeleted"] -->|best-effort storage cleanup| K
+  D["trigger: qualityloop-issue-deleted<br/>issue deleted / project permanently deleted → index.onIssueDeleted"] -->|best-effort storage cleanup| K
   A["jira:projectPage<br/>qualityloop-samples"] -->|invoke| B["sample-resolver → index.sampleHandler<br/>prepareSample / startSample / advanceSample"]
   B -->|asUser: confirmed sample creation with properties| J
-  AP["jira:adminPage<br/>qualityloop-data"] -->|invoke| AR["data-resolver → index.adminHandler<br/>sampleNcLinks / startOrphanScan / findOrphanPage"]
+  AP["jira:adminPage<br/>qualityloop-data"] -->|invoke| AR["data-resolver → index.adminHandler<br/>Data health / accessible index repair / sample links"]
   AR -->|visible-record backfill| K
 ```
 
-- **Modules:** `jira:issuePanel`, `jira:issueContext`, `jira:projectPage`, `jira:adminPage`, `jira:entityPropertySet` (aliases `qlRecordType`, `qlPart`, `qlPartBase`, `qlFailureMode`, `qlSupplier`, `qlDetected`, `qlClosed`), and an issue-deleted trigger.
+- **Modules:** `jira:issuePanel`, `jira:issueContext`, `jira:projectPage`, `jira:adminPage`, `jira:entityPropertySet` (aliases `qlRecordType`, `qlPart`, `qlPartBase`, `qlFailureMode`, `qlSupplier`, `qlDetected`, `qlClosed`), and one deletion trigger subscribed to issue deletion and permanent project deletion. Project trash is not subscribed.
 - **Scopes:** `read:jira-work`, `write:jira-work`, `storage:app`, `read:jira-user`.
 - **Hosting configuration:** no external egress permission or LLM dependency is declared. Runs on Atlassian eligibility has not been verified here.
 
@@ -103,7 +103,11 @@ npm run eval:dev
 
 ## Data and privacy
 
-QualityLoop stores QualityLoop fields in Jira issue properties, and decisions in Forge app storage. Opening an evidence link is a separate browser action. Issue-deletion handling makes a best-effort attempt to clean associated app records; confirmed sample removal also cleans records for successfully deleted samples. Manual orphan deletion is disabled. See [PRIVACY.md](PRIVACY.md).
+QualityLoop stores QualityLoop fields in Jira issue properties, and decisions in Forge app storage. Opening an evidence link is a separate browser action. Whole-project data is removed following permanent project deletion when cleanup checks succeed, or through confirmed admin Data health removal. **Trashed projects keep their QualityLoop data**, including after restoration. The soft-delete subscription is removed and queued soft-delete events are ignored. Individual issue deletion and confirmed sample removal retain their existing cleanup. Permanent-project events carry no child issue IDs and do not emit child issue-deleted events, so the existing cleanup checks stored references globally with an 18-second read budget and the trash protection below.
+
+Jira admins can open **QualityLoop data → Data health**, click **Check for orphaned records**, then **Remove orphaned records** and confirm the displayed count. The check scans both record entities in ten-record pages, with a 12-second read budget per invocation and at most 20 pages per browser action. Resume controls continue unfinished checks and confirmed removals using account-bound tickets valid for one hour; a page reload, expired ticket, invalid cursor or pre-trash-protection ticket requires a new check. It uses `asApp()` only for issue-existence status, never issue content, and the acting Jira admin's `asUser()` access for the project-trash check. Only counts and app record IDs are returned. Counting or deleting an orphan requires a fresh issue 404 plus reliable exclusion of projects in trash. The result text explains that uncertain records are not counted and are retained. A 403 or other error alone never permits deletion. Existing accessible-record index repair still uses `asUser()`.
+
+Limitations: missing issues cannot be reliably mapped to their project from stored IDs. QualityLoop conservatively retains **all** missing-issue records if any project is in trash or a complete empty-trash result cannot be verified. The project search uses `status=deleted`, meaning the recycle bin. Permanent-event cleanup also verifies the app principal has global `ADMINISTER` before trusting that search; without it, missing records are retained for the admin check. No additional scope or admin permission is granted to the app. These checks are repeated before removal. Event delivery, eventual storage indexes, permissions and budgets can leave records behind; re-run Data health when trash can be excluded. Get issue still requires app Browse projects/issue-security access, so 404 remains an imperfect deletion signal even when trash is excluded. An interrupted progress write after a successful removal may under-report the count, while replay remains safe. No Jira issues are changed by Data health. See [PRIVACY.md](PRIVACY.md) and [T22.md](docs/tasks/T22.md).
 
 ## Development
 

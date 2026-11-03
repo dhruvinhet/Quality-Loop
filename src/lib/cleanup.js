@@ -2,6 +2,14 @@ import { validIssueId } from './decisions';
 
 export const RECORD_ENTITIES = ['decision', 'pair-state'];
 
+// A 404 cannot distinguish a deleted issue from one in a restorable project.
+// Callers must explicitly establish trash safety before it permits removal.
+export function orphanClassification(references, statuses, trashExcluded = false) {
+  if (references.length !== 2) return 'unknown';
+  if (statuses.includes(404)) return trashExcluded === true ? 'orphan' : 'unknown';
+  return statuses.length === 2 && statuses.every((status) => status === 200) ? 'live' : 'unknown';
+}
+
 export function recordReferences(entity, key, value) {
   // Legacy pair-state records have no ID attributes. Their validated key is authoritative.
   const match = entity === 'pair-state' && /^(\d{1,30}):(\d{1,30})$/.exec(key);

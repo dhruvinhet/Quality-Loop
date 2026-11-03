@@ -39,8 +39,25 @@ test('recovery confirmation lists the separate recording write', () => {
 });
 
 const decision = { capaId: '2', issueId: '1', taskClaimedAt: claim, taskMarkerVersion: 1 };
-test('marker records the exact decision, CAPA, NC and durable claim time', () => {
+test('v1 legacy marker records the exact decision, CAPA, NC and durable claim time and still recovers', () => {
   expect(followupMarker('2:1:decision', decision)).toEqual({ schemaVersion: 1, decisionId: '2:1:decision', capaId: '2', ncId: '1', claimedAt: claim });
+  expect(recoveryMarkerKind({ properties: { 'qualityloop-followup': followupMarker('2:1:decision', decision) } }, '2:1:decision', decision)).toBe('marked');
+});
+
+test('v2 marker contains only an opaque token and recovery requires its exact stored value', () => {
+  const token = 'a0b1c2d3e4f56789a0b1c2d3e4f56789';
+  const current = { ...decision, taskMarkerVersion: 2, taskMarkerToken: token };
+  const marker = followupMarker('2:1:decision', current);
+  expect(marker).toEqual({ schemaVersion: 2, token });
+  expect(Object.keys(marker).sort()).toEqual(['schemaVersion', 'token']);
+  const marked = (value) => ({ properties: { 'qualityloop-followup': value } });
+  expect(recoveryMarkerKind(marked(marker), '2:1:decision', current)).toBe('marked');
+  for (const invalid of [{ ...marker, token: 'f'.repeat(32) }, { schemaVersion: 2 }, followupMarker('2:1:decision', decision)]) {
+    expect(recoveryMarkerKind(marked(invalid), '2:1:decision', current)).toBeNull();
+  }
+  expect(recoveryMarkerKind(task, '2:1:decision', current)).toBeNull();
+  expect(recoveryMarkerKind(task, '2:1:decision', { ...current, taskMarkerVersion: undefined })).toBeNull();
+  expect(recoveryMarkerKind(marked(marker), '2:1:decision', { ...current, taskMarkerToken: undefined })).toBeNull();
 });
 test.each([{ decisionId: 'other' }, { capaId: '3' }, { ncId: '4' }, { schemaVersion: 2 }, { claimedAt: 'other' }])(
   'a present conflicting marker never becomes a legacy candidate: %j', (patch) => {

@@ -3,15 +3,29 @@ import { escapeJqlValue } from './matchJql';
 export const followupSummary = (capaKey) => `Effectiveness re-review: ${capaKey}`;
 export const FOLLOWUP_PROPERTY = 'qualityloop-followup';
 export const legacyMarkerWarning = 'This task has no QualityLoop marker; confirm only if you know it is the follow-up task.';
-export const followupMarker = (decisionId, decision) => ({ schemaVersion: 1, decisionId,
+const legacyMarker = (decisionId, decision) => ({ schemaVersion: 1, decisionId,
   capaId: decision.capaId, ncId: decision.issueId, claimedAt: decision.taskClaimedAt });
+const validToken = (token) => typeof token === 'string' && /^[a-f0-9]{32}$/.test(token);
+export function followupMarker(decisionId, decision) {
+  if (decision.taskMarkerVersion === 2 || decision.taskMarkerToken != null) {
+    if (!validToken(decision.taskMarkerToken)) throw new Error('Follow-up marker token is unavailable.');
+    return { schemaVersion: 2, token: decision.taskMarkerToken };
+  }
+  return legacyMarker(decisionId, decision);
+}
 
 // Only pre-marker claims can recover unmarked legacy tasks. A present but
 // conflicting/malformed marker must never fall back to summary-based recovery.
 export function recoveryMarkerKind(task, decisionId, decision) {
-  if (!Object.hasOwn(task?.properties ?? {}, FOLLOWUP_PROPERTY)) return decision.taskMarkerVersion == null ? 'legacy' : null;
+  if (!Object.hasOwn(task?.properties ?? {}, FOLLOWUP_PROPERTY)) {
+    return decision.taskMarkerVersion == null && decision.taskMarkerToken == null ? 'legacy' : null;
+  }
   const actual = task.properties[FOLLOWUP_PROPERTY];
-  const expected = followupMarker(decisionId, decision);
+  if (decision.taskMarkerVersion === 2 || decision.taskMarkerToken != null) {
+    return actual?.schemaVersion === 2 && validToken(decision.taskMarkerToken)
+      && actual.token === decision.taskMarkerToken ? 'marked' : null;
+  }
+  const expected = legacyMarker(decisionId, decision);
   return actual && Object.entries(expected).every(([key, value]) => actual[key] === value) ? 'marked' : null;
 }
 

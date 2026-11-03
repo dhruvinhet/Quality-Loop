@@ -1,17 +1,20 @@
 import { kvs, Filter, FilterConditions } from '@forge/kvs';
 import { RECORD_ENTITIES, recordReferences, recordsForIssues } from '../lib/cleanup';
+import { checkOrphan } from './orphanChecks';
+import { BudgetExceeded, loadBudget } from './loadBudget';
 
 export const STORAGE_PAGE_SIZE = 10;
 
-export async function recordPage(entity, cursor, index = 'by-key', partition) {
+export async function recordPage(entity, cursor, index = 'by-key', partition, budget) {
   if (!RECORD_ENTITIES.includes(entity)) throw new Error('Invalid record entity.');
   let query = kvs.entity(entity).query().index(index, partition ? { partition: [partition] } : undefined).limit(STORAGE_PAGE_SIZE);
   if (cursor) query = query.cursor(cursor);
-  const page = await query.getMany();
+  const read = (fn) => budget ? budget.run(fn) : fn();
+  const page = await read(() => query.getMany());
   // Queries can lag writes/deletes. Always operate on the strictly consistent value.
   const records = [];
   for (const { key } of page.results) {
-    const value = await kvs.entity(entity).get(key);
+    const value = await read(() => kvs.entity(entity).get(key));
     if (value) records.push({ entity, key, value });
   }
   return { records, nextCursor: page.nextCursor };
@@ -83,11 +86,46 @@ export async function cleanupIssueRecords(issueId) {
   return { complete: !failed };
 }
 
-// Product events execute in app context. No Jira call is made by this handler.
+// Project events have no child IDs and records have no project mapping. Scan
+// references globally, including legacy records. A fresh 404 also requires an
+// authoritative empty-trash check so other restorable projects remain protected.
+export async function cleanupProjectOrphans() {
+  const budget = loadBudget(18000);
+  let complete = true;
+  try {
+    for (const entity of RECORD_ENTITIES) {
+      let cursor;
+      do {
+        const page = await recordPage(entity, cursor, 'by-key', undefined, budget);
+        for (const record of page.records) {
+          const status = await checkOrphan(record, budget, { eventContext: true });
+          if (status === 'unknown') complete = false;
+          if (status === 'orphan') {
+            budget.check();
+            await deleteRecordBatch([record]);
+          }
+        }
+        cursor = page.nextCursor;
+      } while (cursor);
+    }
+  } catch (error) {
+    complete = false;
+    if (!(error instanceof BudgetExceeded)) console.error('QualityLoop project cleanup scan failed.');
+  }
+  if (!complete) console.error('QualityLoop project cleanup incomplete. Use Data health to check again.');
+  return { complete };
+}
+
+// The existing export handles both issue and project deletion subscriptions.
 export async function onIssueDeleted(event) {
   try {
-    if (event?.eventType !== 'avi:jira:deleted:issue' || event.selfGenerated || !/^\d{1,30}$/.test(event.issue?.id ?? '')) return;
-    await cleanupIssueRecords(event.issue.id);
+    if (event?.selfGenerated) return;
+    if (event?.eventType === 'avi:jira:deleted:issue' && /^\d{1,30}$/.test(event.issue?.id ?? '')) {
+      await cleanupIssueRecords(event.issue.id);
+    } else if (event?.eventType === 'avi:jira:deleted:project'
+        && /^\d{1,30}$/.test(event.project?.id ?? '')) {
+      await cleanupProjectOrphans();
+    }
   } catch {
     console.error('QualityLoop issue deletion cleanup incomplete.');
   }

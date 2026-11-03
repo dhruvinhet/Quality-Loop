@@ -20,6 +20,7 @@ modules:
       function: issue-deleted
       events:
         - avi:jira:deleted:issue
+        - avi:jira:deleted:project
       filter:
         ignoreSelf: true
   jira:issuePanel:
@@ -143,6 +144,8 @@ app:
             type: string
           taskMarkerVersion:
             type: integer
+          taskMarkerToken:
+            type: string
           taskClaimId:
             type: string
           taskClaimedAt:

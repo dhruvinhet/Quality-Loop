@@ -66,9 +66,11 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
     {strong.map((match) => <EvidenceCard key={match.id} match={match} classification="strong"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
     {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more candidates not checked (most recent 25 verified matches shown).`}</Text>}
+    {!!result.verifiedNotShown?.strong && <Text>{`${result.verifiedNotShown.strong} more verified matches not shown (most recent 25 shown)`}</Text>}
     {relatedRevision.map((match) => <EvidenceCard key={match.id} match={match} classification="relatedRevision"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
     {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more candidates not checked (most recent 25 verified matches shown).`}</Text>}
+    {!!result.verifiedNotShown?.relatedRevision && <Text>{`${result.verifiedNotShown.relatedRevision} more verified matches not shown (most recent 25 shown)`}</Text>}
     <HistoricalDecisions canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} pairs={Object.fromEntries(Object.entries(pairs)
       .filter(([id]) => ![...strong, ...relatedRevision].some((match) => match.id === id)))} />
     {readOnly ? <Text>{`Other related records (${otherRelated.length})`}</Text>

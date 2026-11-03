@@ -1,4 +1,4 @@
-const { callPage, pollSampleReady, scanRecordPages } = require('../pageRunner');
+const { callPage, pollSampleReady, scanRecordPages, runHealthPages } = require('../pageRunner');
 
 test('page bridge failures cannot expose raw exceptions', async () => {
   await expect(callPage(jest.fn().mockRejectedValue(new Error('SECRET issue details')), 'sampleStatus'))
@@ -23,4 +23,18 @@ test('record pagination follows an empty page cursor and both entities', async (
   const visit = jest.fn().mockResolvedValueOnce({ nextCursor: 'next' }).mockResolvedValue({});
   await scanRecordPages(visit);
   expect(visit.mock.calls).toEqual([['decision', undefined], ['decision', 'next'], ['pair-state', undefined]]);
+});
+
+test('health runner reports cumulative progress and bounds each browser action', async () => {
+  const visit = jest.fn().mockResolvedValue({ scanComplete: false });
+  const progress = jest.fn();
+  await runHealthPages(visit, 'scanComplete', progress, 3);
+  expect(visit).toHaveBeenCalledTimes(3);
+  expect(progress).toHaveBeenCalledTimes(3);
+});
+
+test.each([{ paused: true }, { scanComplete: true }])('health runner stops for budget/complete result %j', async (result) => {
+  const visit = jest.fn().mockResolvedValue(result);
+  expect(await runHealthPages(visit, 'scanComplete', jest.fn())).toEqual(result);
+  expect(visit).toHaveBeenCalledTimes(1);
 });

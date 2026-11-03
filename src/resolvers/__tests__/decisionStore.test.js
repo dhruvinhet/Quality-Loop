@@ -207,8 +207,12 @@ test('a timed out essential state read rejects instead of inventing an empty pai
 test('new claims opt in to marker-required recovery while old claims stay unchanged', async () => {
   records.set('decision/d', { type: 'CONCERN' });
   const claimed = await claimTask('d', { type: 'CONCERN' });
-  expect(claimed.taskMarkerVersion).toBe(1);
-  expect(records.get('decision/d')).toMatchObject({ taskMarkerVersion: 1, taskClaimedAt: expect.any(String) });
+  expect(claimed.taskMarkerVersion).toBe(2);
+  expect(claimed.taskMarkerToken).toMatch(/^[a-f0-9]{32}$/);
+  expect(records.get('decision/d')).toMatchObject({ taskMarkerVersion: 2, taskClaimedAt: expect.any(String),
+    taskMarkerToken: claimed.taskMarkerToken });
+  const second = await claimTask('another', { type: 'CONCERN' });
+  expect(second.taskMarkerToken).not.toBe(claimed.taskMarkerToken);
 });
 test('link completion is conditional on the saved key and claim and preserves newer task metadata', async () => {
   const decision = { taskClaimId: 'claim', taskKey: 'QL-3', type: 'CONCERN' };

@@ -137,7 +137,7 @@ test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or st
     .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
     .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
   const result = await handler.findMatches({ context });
-  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, elapsedMs: expect.any(Number) });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, elapsedMs: expect.any(Number) });
   expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
 });
 
