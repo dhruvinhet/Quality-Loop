@@ -79,7 +79,7 @@ test('returns errors as data on Jira failure without exposing response bodies', 
 test('release resolver surface contains only shipped features', () => {
   expect(Object.keys(handler).sort()).toEqual([
     'loadCapture', 'loadEvidence', 'saveCapture', 'findMatches', 'findHints', 'getPanelAccess',
-    'recordDecision', 'getDecisions', 'prepareConcernTask', 'createConcernTask', 'checkConcernTask', 'confirmConcernTask',
+    'recordDecision', 'getDecisions', 'prepareConcernTask', 'createConcernTask', 'checkConcernTask', 'confirmConcernTask', 'prepareRepairLink', 'repairConcernLink',
   ].sort());
 });
 
@@ -137,7 +137,7 @@ test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or st
     .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
     .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
   const result = await handler.findMatches({ context });
-  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, notShown: { strong: 0, relatedRevision: 0 }, elapsedMs: expect.any(Number) });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, elapsedMs: expect.any(Number) });
   expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
 });
 
@@ -208,7 +208,8 @@ test('findHints uses separate capped enhanced searches and freshly reauthorised 
     ['20003', 'No closed date recorded'],
     ['20004', 'Older precedent: closed 366 days before detection (outside the 365-day window)'],
   ]);
-  expect(Object.keys(result)).toEqual(['applicable', 'hints']);
+  expect(Object.keys(result)).toEqual(['applicable', 'incomplete', 'truncated', 'hints']);
+  expect(result).toMatchObject({ incomplete: true, truncated: true });
   expect(result.hints.map(({ summary }) => summary)).toEqual([
     'Fresh summary', 'Fresh summary', 'Fresh summary',
   ]);
@@ -277,4 +278,14 @@ test.each([403, 404])('findHints returns nothing on current-property or search d
 test('hint search errors return an error, never a fabricated empty-hints success', async () => {
   requestJira.mockResolvedValueOnce(response(200, { value: matchingNc })).mockResolvedValueOnce(response(500));
   expect(await handler.findHints({ context })).toEqual({ error: expect.any(String) });
+});
+
+test.each([{ isLast: false }, { nextPageToken: 'more' }, { isLast: true, nextPageToken: 'more' }])('hint continuation %j marks the limited search incomplete and truncated', async (continuation) => {
+  requestJira.mockImplementation(async (path) => {
+    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    return response(200, { issues: [], ...continuation });
+  });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, incomplete: true, truncated: true, hints: [] });
+  expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')).toHaveLength(3);
+  expect(requestJira.mock.calls.some(([, options]) => options?.body && JSON.parse(options.body).nextPageToken)).toBe(false);
 });

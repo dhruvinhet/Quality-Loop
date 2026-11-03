@@ -184,3 +184,75 @@ test('SIMULATED a hanging Jira read ends at 15 seconds, below the UI limit', asy
   expect(await pending).toMatchObject({ incomplete: true, decisionsIncomplete: true, strong: [], pairs: {} });
   expect(requestJira).toHaveBeenCalledTimes(1);
 });
+
+test.each(['strong', 'relatedRevision'])('SIMULATED %s refills from the 26th candidate after 25 changed or denied reads', async (kind) => {
+  corpus = Array.from({ length: 26 }, (_, i) => issue(100 + i, { ...nc, recordType: 'CAPA',
+    partOriginal: kind === 'strong' ? 'P-4471-A' : 'P-4471-B',
+    closedDate: `2026-10-${String(30 - i).padStart(2, '0')}` }));
+  for (let i = 0; i < 25; i++) {
+    if (i % 3 === 0) changed.set(String(100 + i), issue(100 + i, { ...corpus[i].properties.qualityloop, closedDate: null }));
+    else hidden.set(String(100 + i), i % 3 === 1 ? 403 : 404);
+  }
+  corpus.reverse(); // search order must not determine the cutoff
+  let active = 0;
+  let maximum = 0;
+  const read = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (...args) => {
+    if (!/issue\/\d+\?/.test(args[0])) return read(...args);
+    active++;
+    maximum = Math.max(maximum, active);
+    await new Promise((resolve) => setImmediate(resolve));
+    try { return await read(...args); } finally { active--; }
+  });
+  const result = await handler.loadEvidence({ context });
+  expect(result[kind].map(({ id }) => id)).toEqual(['125']);
+  expect(result).toMatchObject({ notShown: { strong: 0, relatedRevision: 0 }, uncheckedCandidates: false, incomplete: false });
+  expect(maximum).toBe(5);
+  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter((id) => id && id !== '1');
+  expect(directIds).toHaveLength(26);
+  expect(new Set(directIds).size).toBe(26);
+  expect(JSON.stringify(result)).not.toContain('SECRET');
+});
+
+test.each(['strong', 'relatedRevision'])('SIMULATED %s counts only unchecked snapshot candidates after refill, ignoring totals and permission races', async (kind) => {
+  corpus = Array.from({ length: 60 }, (_, i) => issue(100 + i, { ...nc, recordType: 'CAPA',
+    partOriginal: kind === 'strong' ? 'P-4471-A' : 'P-4471-B',
+    closedDate: new Date(Date.UTC(2026, 9, 30 - i)).toISOString().slice(0, 10) }));
+  // Five newest revoked records are re-read and excluded. The 30 un-read older
+  // candidates also lose access after search; their validity is never claimed.
+  for (let i = 0; i < 60; i++) if (i < 5 || i >= 30) hidden.set(String(100 + i), 403);
+  const read = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (...args) => {
+    const result = await read(...args);
+    if (args[0] === '/rest/api/3/search/jql') {
+      const data = await result.json();
+      return response(200, { ...data, total: 987654 });
+    }
+    return result;
+  });
+  const result = await handler.loadEvidence({ context });
+  expect(result[kind]).toHaveLength(25);
+  expect(result[kind][0].id).toBe('105');
+  expect(result[kind].at(-1).id).toBe('129');
+  expect(result.notShown[kind]).toBe(30);
+  expect(result.uncheckedCandidates).toBe(true);
+  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter((id) => id && id !== '1');
+  expect(directIds).toHaveLength(30);
+  expect(directIds).not.toContain('130');
+  expect(JSON.stringify(result)).not.toMatch(/SECRET|987654|total/);
+});
+
+test('SIMULATED budget expiry before re-reads reports all collected candidates as unchecked', async () => {
+  seed(500);
+  let clock = 0;
+  jest.spyOn(Date, 'now').mockImplementation(() => clock);
+  const read = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (...args) => {
+    const result = await read(...args);
+    if (args[0] === '/rest/api/3/search/jql' && JSON.parse(args[1].body).nextPageToken === '50') clock = 15001;
+    return result;
+  });
+  const result = await findMatches('1', loadBudget());
+  expect(result).toMatchObject({ incomplete: true, uncheckedCandidates: true, strong: [], relatedRevision: [] });
+  expect(result.notShown.strong + result.notShown.relatedRevision).toBe(50);
+});

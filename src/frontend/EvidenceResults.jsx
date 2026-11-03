@@ -58,17 +58,17 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
     {result.otherRelatedIncomplete && <SectionMessage appearance="warning"><Text>Other related search is limited to 20 candidates per query. More related records may exist.</Text></SectionMessage>}
     {result.incomplete && <SectionMessage appearance="warning"><Text>The loading time budget was reached or some evidence is incomplete. Only completed results are shown. Refresh to try again.</Text></SectionMessage>}
     {!strong.length && <>
-      <Text>{result.matchesIncomplete || result.incomplete ? 'No exact signature match found in the completed checks.' : 'No closed CAPA with this part and failure mode in the last 365 days'}</Text>
+      <Text>{result.matchesIncomplete || result.incomplete || result.uncheckedCandidates ? 'No exact signature match found in the completed checks.' : 'No closed CAPA with this part and failure mode in the last 365 days'}</Text>
       <Text>{canEdit === false ? 'Check the saved quality details. Ask someone with Edit Issues permission to correct them if needed, then refresh evidence.'
         : 'Check the saved part number, failure mode and detected date, then refresh evidence.'}</Text>
       {!!relatedRevision.length && <Text>Related revisions are shown separately below. They are not exact signature matches.</Text>}
     </>}
     {strong.map((match) => <EvidenceCard key={match.id} match={match} classification="strong"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
-    {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more not shown (most recent 25 displayed)`}</Text>}
+    {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more candidates not checked (most recent 25 verified matches shown).`}</Text>}
     {relatedRevision.map((match) => <EvidenceCard key={match.id} match={match} classification="relatedRevision"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
-    {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more not shown (most recent 25 displayed)`}</Text>}
+    {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more candidates not checked (most recent 25 verified matches shown).`}</Text>}
     <HistoricalDecisions canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} pairs={Object.fromEntries(Object.entries(pairs)
       .filter(([id]) => ![...strong, ...relatedRevision].some((match) => match.id === id)))} />
     {readOnly ? <Text>{`Other related records (${otherRelated.length})`}</Text>

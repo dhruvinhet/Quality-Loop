@@ -45,9 +45,11 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
   const [modalError, setModalError] = useState('');
   const [followup, setFollowup] = useState(null);
   const [recovery, setRecovery] = useState(null);
+  const [linkRepair, setLinkRepair] = useState(null);
   const [checkedTask, setCheckedTask] = useState(null);
   const [local, setLocal] = useState(null);
-  const pairState = local && (!data || local.version > data.pairState.version) ? local : data?.pairState;
+  const pairState = local && (!data?.pairState || local.version > data.pairState.version) ? local : data?.pairState;
+  const decisionReady = ready && !!data?.pairState && !data.pairStateIncomplete;
   const open = (value) => {
     setExpectedVersion(pairState?.version ?? 0);
     setType(value); setModalError(''); setMessage('');
@@ -108,29 +110,50 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
     } catch { setMessage('The recovery response was interrupted. Refresh history before confirming again.'); }
     finally { setRecovery(null); busyRef.current = false; setBusy(false); onChanged(); }
   };
+  const prepareRepair = async (decisionId) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setMessage('');
+    try {
+      const result = await invoke('prepareRepairLink', { capaId: match.id, decisionId });
+      if (result?.confirmation) setLinkRepair({ ...result, decisionId });
+      else setMessage(result?.message || result?.error || 'Link repair is unavailable with your current issue access.');
+    } catch { setMessage('The link repair proposal could not be loaded. Refresh history and try again.'); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const repairLink = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    try {
+      const result = await invoke('repairConcernLink', { capaId: match.id, decisionId: linkRepair.decisionId, confirmation: linkRepair.confirmation });
+      setMessage(result?.message || result?.error || 'Link repair is unavailable with your current issue access.');
+    } catch { setMessage('The repair response was interrupted. Refresh history and use Repair link again; another task will not be created.'); }
+    finally { setLinkRepair(null); busyRef.current = false; setBusy(false); onChanged(); }
+  };
   const eligible = data?.concernAllowed ?? (pairState?.state === 'CONFIRMED' || !match.effectivenessEvidenceUrl?.trim());
   return <Stack space="space.100">
     <Text><Lozenge>{pairState ? STATE_LABELS[pairState.state] : 'Decision state unavailable'}</Lozenge></Text>
-    {data && <Text>{`NCs currently confirmed as recurrences of this CAPA: ${data.confirmedCount}${data.confirmedCountIncomplete && data.confirmedCount !== '50+' ? '+ (limited check; total unavailable)' : ''} (may take a few seconds to update)`}</Text>}
+    {data?.confirmedCountUnavailable ? <Text>Count unavailable — refresh to try again</Text>
+      : data && <Text>{`NCs currently confirmed as recurrences of this CAPA: ${data.confirmedCount}${data.confirmedCountIncomplete && data.confirmedCount !== '50+' ? '+ (limited check; total unavailable)' : ''} (may take a few seconds to update)`}</Text>}
     {!data && <Text>Decision state and history are loading or unavailable.</Text>}
     {!readOnly && <>
-      <Button isDisabled={!ready || busy} onClick={() => open('CONFIRM')}>Engineer-confirmed recurrence</Button>
-      <Button isDisabled={!ready || busy} onClick={() => open('NOT_RECURRENCE')}>Not a recurrence</Button>
-      <Button isDisabled={!ready || busy || !eligible} onClick={() => open('CONCERN')}>Effectiveness concern</Button>
+      <Button isDisabled={!decisionReady || busy} onClick={() => open('CONFIRM')}>Engineer-confirmed recurrence</Button>
+      <Button isDisabled={!decisionReady || busy} onClick={() => open('NOT_RECURRENCE')}>Not a recurrence</Button>
+      <Button isDisabled={!decisionReady || busy || !eligible} onClick={() => open('CONCERN')}>Effectiveness concern</Button>
       {!eligible && <Text>Record an Engineer-confirmed recurrence first. An Effectiveness concern can also be recorded when no effectiveness evidence is present.</Text>}
-      {!!pairState?.version && <Button isDisabled={!ready || busy} onClick={() => open('SUPERSEDE')}>Correct explanation</Button>}
+      {!!pairState?.version && <Button isDisabled={!decisionReady || busy} onClick={() => open('SUPERSEDE')}>Correct explanation</Button>}
     </>}
     {message && <Text>{message}</Text>}
     {checkedTask && <Text>Found task: <Link href={`/browse/${encodeURIComponent(checkedTask.key)}`}>{checkedTask.key}</Link></Text>}
     <Text>Decision history</Text>
     {data?.historyIncomplete && <Text>Older decisions not shown</Text>}
-    {data && !data.history.length && <Text>No decisions recorded.</Text>}
+    {data && !data.historyIncomplete && !data.history.length && <Text>No decisions recorded.</Text>}
     {(data?.history ?? []).map((item) => <Stack key={item.id} space="space.050">
       <Text>{`${item.authorDisplayName} · ${item.createdAt.slice(0, 10)} · ${TYPE_LABELS[item.type] ?? item.type}${item.id === pairState?.latestDecisionId ? ' · Latest' : ''}`}</Text>
       <Text>{item.reason}</Text>
       {item.reasonCategory && <Text>{`Category: ${item.reasonCategory.toLowerCase().replaceAll('_', ' ')}`}</Text>}
       {(item.evidenceLinks ?? []).filter(validEvidenceUrl).map((url, i) => <Text key={`${i}:${url}`}><Link href={url} openNewTab>{url}</Link></Text>)}
       {item.taskKey && <Text>Re-review task: <Link href={`/browse/${encodeURIComponent(item.taskKey)}`}>{item.taskKey}</Link></Text>}
+      {item.taskKey && !item.taskLinked && <Button isDisabled={busy || !canRecover} onClick={() => prepareRepair(item.id)}>Repair link</Button>}
       {item.followupUnconfirmed && <>
         <Text>A follow-up was started but not confirmed.</Text>
         <Button isDisabled={busy} onClick={() => checkTask(item.id)}>Check for task</Button>
@@ -151,6 +174,12 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
         </Stack></ModalBody>
         <ModalFooter><Button isDisabled={busy} onClick={() => setRecovery(null)}>Cancel</Button>
           <Button appearance="primary" isDisabled={busy} onClick={confirmTask}>Confirm task key</Button></ModalFooter>
+      </Modal>}
+      {linkRepair && <Modal onClose={() => { if (!busy) setLinkRepair(null); }}>
+        <ModalHeader><ModalTitle>Confirm link repair</ModalTitle></ModalHeader>
+        <ModalBody><Text>{linkRepair.confirmation}</Text></ModalBody>
+        <ModalFooter><Button isDisabled={busy} onClick={() => setLinkRepair(null)}>Cancel</Button>
+          <Button appearance="primary" isDisabled={busy} onClick={repairLink}>Confirm repair</Button></ModalFooter>
       </Modal>}
     </ModalTransition>
   </Stack>;

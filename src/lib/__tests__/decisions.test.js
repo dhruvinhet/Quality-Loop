@@ -53,12 +53,12 @@ test('SUPERSEDE corrects the explanation while preserving an established state',
 });
 test('confirmation for an unassigned CAPA ends with no assignee and omits the rejection fallback', () => {
   const confirmation = followupConfirmation('QL', 'QL-42');
-  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Assignee: none (the CAPA has no assignee).");
+  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Set the qualityloop-followup marker property on the new task (schemaVersion, decisionId, capaId, ncId, claimedAt). Assignee: none (the CAPA has no assignee).");
   expect(confirmation).not.toContain('If Jira rejects');
 });
 
 test('confirmation for an assigned CAPA shows only the display name and explains the rejection fallback', () => {
   const confirmation = followupConfirmation('QL', 'QL-42', { accountId: 'private-owner-id', displayName: ' CAPA Owner ' });
-  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Intended assignee: CAPA Owner. If Jira rejects this assignee, the task is created unassigned.");
+  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Set the qualityloop-followup marker property on the new task (schemaVersion, decisionId, capaId, ncId, claimedAt). Intended assignee: CAPA Owner. If Jira rejects this assignee, the task is created unassigned.");
   expect(confirmation).not.toContain('private-owner-id');
 });

@@ -139,6 +139,10 @@ app:
             type: string
           taskKey:
             type: string
+          taskLinkedAt:
+            type: string
+          taskMarkerVersion:
+            type: integer
           taskClaimId:
             type: string
           taskClaimedAt:

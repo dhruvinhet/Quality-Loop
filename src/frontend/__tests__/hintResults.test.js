@@ -38,3 +38,19 @@ test('expanded hints show the link, unchanged stored strings and one reason, wit
   expect(tree.filter(({ type }) => type === 'Button')).toHaveLength(1);
   expect(tree.filter((node) => typeof node.type === 'function')).toEqual([]);
 });
+
+test('expanded truncated hint search shows the cap notice and cautious manual-review wording', () => {
+  jest.spyOn(React, 'useState').mockReturnValue([true, jest.fn()]);
+  const tree = nodes(HintResults({ result: { ...result, incomplete: true, truncated: true } }));
+  expect(tree).toContain('The hint search was limited to 50 records; more may exist.');
+  expect(tree).toContain('These are hints for checking recorded details. These records do not meet the matching rules, but may still be worth a manual review.');
+  expect(tree.some((node) => typeof node === 'string' && node.includes('They are not possible recurrences.'))).toBe(false);
+  expect(tree.some((node) => typeof node === 'string' && node.includes('hint time budget was reached'))).toBe(false);
+});
+
+test('hint time budget and search truncation have distinct notices when both apply', () => {
+  jest.spyOn(React, 'useState').mockReturnValue([true, jest.fn()]);
+  const tree = nodes(HintResults({ result: { ...result, incomplete: true, budgetExceeded: true, truncated: true } }));
+  expect(tree).toContain('The hint search was limited to 50 records; more may exist.');
+  expect(tree).toContain('The hint time budget was reached. Only completed checks are shown; more hints may exist.');
+});

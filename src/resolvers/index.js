@@ -71,6 +71,7 @@ define('findMatches', [], (issueId) => findMatches(issueId));
 define('findHints', [], async (issueId) => {
   const budget = loadBudget();
   let current;
+  let truncated = false;
   const candidates = [];
   try {
     current = await budget.run(() => readProperty(issueId, 'qualityloop'));
@@ -88,6 +89,7 @@ define('findHints', [], async (issueId) => {
       if (response.status === 403 || response.status === 404) return null;
       checkJira(response);
       const data = await budget.run(() => response.json());
+      if (data.isLast === false || data.nextPageToken || data.issues?.length > HINT_CANDIDATE_LIMIT) truncated = true;
       const issues = (data.issues ?? []).slice(0, HINT_CANDIDATE_LIMIT).filter(({ id }) => {
         const value = String(id);
         if (!/^\d+$/.test(value) || seen.has(value)) return false;
@@ -110,10 +112,11 @@ define('findHints', [], async (issueId) => {
         candidates.push(...fresh.filter(Boolean));
       }
     }
-    return { applicable: true, hints: selectHints({ ...current, id: issueId }, candidates) };
+    return { applicable: true, ...(truncated ? { incomplete: true, truncated: true } : {}), hints: selectHints({ ...current, id: issueId }, candidates) };
   } catch (error) {
     if (!(error instanceof BudgetExceeded)) throw error;
-    return { applicable: true, incomplete: true, hints: current ? selectHints({ ...current, id: issueId }, candidates) : [] };
+    return { applicable: true, incomplete: true, budgetExceeded: true, ...(truncated ? { truncated: true } : {}),
+      hints: current ? selectHints({ ...current, id: issueId }, candidates) : [] };
   }
 });
 

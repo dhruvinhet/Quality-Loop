@@ -75,5 +75,5 @@ export function followupConfirmation(project, capaKey, assignee) {
   const ownership = assignee?.accountId
     ? `Intended assignee: ${assignee.displayName?.trim() || "the CAPA's current assignee"}. If Jira rejects this assignee, the task is created unassigned.`
     : 'Assignee: none (the CAPA has no assignee).';
-  return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}. ${ownership}`;
+  return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}. Set the qualityloop-followup marker property on the new task (schemaVersion, decisionId, capaId, ncId, claimedAt). ${ownership}`;
 }

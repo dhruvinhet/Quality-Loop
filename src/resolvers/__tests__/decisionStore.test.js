@@ -1,7 +1,8 @@
 jest.mock('@forge/kvs', () => ({ ...jest.requireActual('@forge/kvs'), kvs: { entity: jest.fn(), transact: jest.fn() } }));
 const { kvs } = require('@forge/kvs');
 const { TransactionBuilderImpl } = require('@forge/kvs/out/transaction-api');
-const { commitDecision, claimTask, queryRecords, pairConfirmed, saveTaskMetadata } = require('../decisionStore');
+const { commitDecision, claimTask, queryRecords, pairConfirmed, saveTaskMetadata, saveTaskLinked, getPairState } = require('../decisionStore');
+const { BudgetExceeded, loadBudget } = require('../loadBudget');
 
 const payload = { capaId: '20002', expectedVersion: 0, type: 'CONFIRM', reason: 'Review evidence', evidenceLinks: [] };
 const args = { issueId: '10001', authorAccountId: 'server-account', payload, capa: {} };
@@ -183,4 +184,58 @@ test('task metadata cannot replace an already recorded task or another claim', a
   expect(await saveTaskMetadata('d', existing)).toBe(true);
   records.set('decision/d', { type: 'CONCERN', taskClaimId: 'different-claim' });
   expect(await saveTaskMetadata('d', { ...existing, taskKey: 'QL-4' })).toBe(false);
+});
+
+test('essential state/version uses a direct bounded read without querying confirmation history', async () => {
+  records.set('pair-state/20002:10001', { version: 7, state: 'CONCERN_RAISED' });
+  expect(await getPairState('20002', '10001', loadBudget())).toEqual({ version: 7, state: 'CONCERN_RAISED' });
+  expect(entityGet).toHaveBeenCalledTimes(1);
+  expect(transact).not.toHaveBeenCalled();
+});
+
+test('a timed out essential state read rejects instead of inventing an empty pair', async () => {
+  jest.useFakeTimers();
+  try {
+    entityGet.mockImplementation(() => new Promise(() => {}));
+    const pending = getPairState('20002', '10001', loadBudget());
+    const rejected = expect(pending).rejects.toBeInstanceOf(BudgetExceeded);
+    await jest.advanceTimersByTimeAsync(15000);
+    await rejected;
+  } finally { jest.useRealTimers(); }
+});
+
+test('new claims opt in to marker-required recovery while old claims stay unchanged', async () => {
+  records.set('decision/d', { type: 'CONCERN' });
+  const claimed = await claimTask('d', { type: 'CONCERN' });
+  expect(claimed.taskMarkerVersion).toBe(1);
+  expect(records.get('decision/d')).toMatchObject({ taskMarkerVersion: 1, taskClaimedAt: expect.any(String) });
+});
+test('link completion is conditional on the saved key and claim and preserves newer task metadata', async () => {
+  const decision = { taskClaimId: 'claim', taskKey: 'QL-3', type: 'CONCERN' };
+  records.set('decision/d', { ...decision, taskClaimedAt: '2026-10-31T12:00:00Z', taskMarkerVersion: 1 });
+  expect(await saveTaskLinked('d', decision)).toBe(true);
+  expect(records.get('decision/d')).toMatchObject({ ...decision, taskMarkerVersion: 1, taskLinkedAt: expect.any(String) });
+  expect(transact.mock.calls[0][0].set[0].conditions.and).toEqual([
+    { property: 'taskClaimId', condition: 'EQUAL_TO', values: ['claim'] },
+    { property: 'taskKey', condition: 'EQUAL_TO', values: ['QL-3'] },
+    { property: 'taskLinkedAt', condition: 'NOT_EXISTS', values: [true] },
+  ]);
+  expect(await saveTaskLinked('d', decision)).toBe(true);
+  expect(transact).toHaveBeenCalledTimes(1);
+});
+test('link completion rejects changed keys or claims, including a different claim with the same key', async () => {
+  const decision = { taskClaimId: 'claim', taskKey: 'QL-3' };
+  records.set('decision/d', { taskClaimId: 'other', taskKey: 'QL-3' });
+  expect(await saveTaskLinked('d', decision)).toBe(false);
+  expect(await saveTaskMetadata('d', decision)).toBe(false);
+  records.set('decision/d', { ...decision, taskKey: 'QL-4' });
+  expect(await saveTaskLinked('d', decision)).toBe(false);
+});
+test('a lost link-completion transaction response is reconciled by its separate timestamp', async () => {
+  const decision = { taskClaimId: 'claim', taskKey: 'QL-3' };
+  records.set('decision/d', decision);
+  const atomic = transact.getMockImplementation();
+  transact.mockImplementation(async (request) => { await atomic(request); throw new Error('Response lost'); });
+  expect(await saveTaskLinked('d', decision)).toBe(true);
+  expect(records.get('decision/d').taskLinkedAt).toEqual(expect.any(String));
 });

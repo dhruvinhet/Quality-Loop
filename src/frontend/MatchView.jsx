@@ -37,7 +37,7 @@ export default function MatchView({ refresh = 0, readOnly = false, canEdit = !re
     {state.decisionsError && <SectionMessage appearance="error"><Text>{state.decisionsError}</Text></SectionMessage>}
     <Button isDisabled={state.refreshing} onClick={retry}>Refresh evidence and decisions</Button>
     <EvidenceResults result={state.result} readOnly={readOnly} canEdit={canEdit} pairs={state.pairs}
-      decisionsReady={!state.refreshing && !state.decisionsError} onChanged={() => setRevision((value) => value + 1)} />
+      decisionsReady={!state.refreshing && !!state.pairs} onChanged={() => setRevision((value) => value + 1)} />
     <HintResults result={state.hints?.hints ? { ...state.hints,
       hints: excludeMatchedHints(state.hints.hints, state.result) } : state.hints} />
   </Stack>;

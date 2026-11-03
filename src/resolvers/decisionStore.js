@@ -6,8 +6,11 @@ import { loadBudget } from './loadBudget';
 // Entity names must be lowercase in Forge; pair-state implements logical pairState.
 export const PAIR_ENTITY = 'pair-state';
 export const DECISION_ENTITY = 'decision';
-export const getPairState = async (capaId, issueId) =>
-  (await kvs.entity(PAIR_ENTITY).get(pairKey(capaId, issueId))) ?? emptyPairState();
+// Essential state/version reads never depend on aggregate counts or legacy history.
+export async function getPairState(capaId, issueId, budget) {
+  const read = () => kvs.entity(PAIR_ENTITY).get(pairKey(capaId, issueId));
+  return (await (budget ? budget.run(read) : read())) ?? emptyPairState();
+}
 
 export async function commitDecision({ issueId, authorAccountId, payload, capa }) {
   const key = pairKey(payload.capaId, issueId);
@@ -95,7 +98,7 @@ export async function pairConfirmed(pair, capaId, issueId, budget = loadBudget()
 // There is no automatic retry after an ambiguous Jira response.
 export async function claimTask(id, decision) {
   const taskClaimId = randomUUID();
-  const claimed = { ...decision, taskClaimId, taskClaimedAt: new Date().toISOString() };
+  const claimed = { ...decision, taskClaimId, taskClaimedAt: new Date().toISOString(), taskMarkerVersion: 1 };
   try {
     await kvs.transact().set(id, claimed, { entityName: DECISION_ENTITY,
       conditions: new Filter().and('taskClaimId', FilterConditions.notExists()) }).execute();
@@ -116,7 +119,28 @@ export async function saveTaskMetadata(id, decision) {
     return true;
   } catch (error) {
     const current = await readDecision(id);
-    if (current?.taskClaimId !== decision.taskClaimId || current?.taskKey) return current?.taskKey === decision.taskKey;
+    if (current?.taskClaimId !== decision.taskClaimId) return false;
+    if (current?.taskKey) return current.taskKey === decision.taskKey;
+    throw error;
+  }
+}
+
+// Update only link completion on the current record, never replace it with a
+// stale history snapshot. Reconcile a lost transaction response by direct read.
+export async function saveTaskLinked(id, decision) {
+  const current = await readDecision(id);
+  if (!current || current.taskClaimId !== decision.taskClaimId || current.taskKey !== decision.taskKey) return false;
+  if (current.taskLinkedAt) return true;
+  try {
+    await kvs.transact().set(id, { ...current, taskLinkedAt: new Date().toISOString() }, { entityName: DECISION_ENTITY,
+      conditions: new Filter().and('taskClaimId', FilterConditions.equalTo(decision.taskClaimId))
+        .and('taskKey', FilterConditions.equalTo(decision.taskKey)).and('taskLinkedAt', FilterConditions.notExists()),
+    }).execute();
+    return true;
+  } catch (error) {
+    const saved = await readDecision(id);
+    if (saved?.taskClaimId !== decision.taskClaimId || saved?.taskKey !== decision.taskKey) return false;
+    if (saved.taskLinkedAt) return true;
     throw error;
   }
 }

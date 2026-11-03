@@ -1,4 +1,4 @@
-const { isRecoveryTask, recoveryJql, recoveryConfirmation } = require('../followup');
+const { isRecoveryTask, recoveryJql, recoveryConfirmation, followupMarker, recoveryMarkerKind, hasCapaLink, repairLinkConfirmation } = require('../followup');
 const { followupConfirmation } = require('../decisions');
 const claim = '2026-10-21T12:13:14.567Z';
 const task = { fields: { project: { id: '123' }, summary: 'Effectiveness re-review: QL-2', created: '2026-10-21T12:13:14.568Z' } };
@@ -36,4 +36,29 @@ test('assigned confirmations explain the fallback without exposing account IDs',
 
 test('recovery confirmation lists the separate recording write', () => {
   expect(recoveryConfirmation('QL-3', 'QL-2')).toBe('Record QL-3 as the follow-up task for the recorded effectiveness concern on QL-2.');
+});
+
+const decision = { capaId: '2', issueId: '1', taskClaimedAt: claim, taskMarkerVersion: 1 };
+test('marker records the exact decision, CAPA, NC and durable claim time', () => {
+  expect(followupMarker('2:1:decision', decision)).toEqual({ schemaVersion: 1, decisionId: '2:1:decision', capaId: '2', ncId: '1', claimedAt: claim });
+});
+test.each([{ decisionId: 'other' }, { capaId: '3' }, { ncId: '4' }, { schemaVersion: 2 }, { claimedAt: 'other' }])(
+  'a present conflicting marker never becomes a legacy candidate: %j', (patch) => {
+    const marked = { properties: { 'qualityloop-followup': { ...followupMarker('2:1:decision', decision), ...patch } } };
+    expect(recoveryMarkerKind(marked, '2:1:decision', decision)).toBeNull();
+    expect(recoveryMarkerKind(marked, '2:1:decision', { ...decision, taskMarkerVersion: undefined })).toBeNull();
+  });
+test('only old claims allow unmarked tasks, with an explicit legacy warning', () => {
+  expect(recoveryMarkerKind(task, '2:1:decision', decision)).toBeNull();
+  expect(recoveryMarkerKind(task, '2:1:decision', { ...decision, taskMarkerVersion: undefined })).toBe('legacy');
+  expect(recoveryMarkerKind({ properties: { 'qualityloop-followup': null } }, '2:1:decision', decision)).toBeNull();
+  expect(recoveryConfirmation('QL-3', 'QL-2', true)).toContain('This task has no QualityLoop marker; confirm only if you know it is the follow-up task.');
+  expect(repairLinkConfirmation('QL-3', 'QL-2')).toContain('Create a Relates link from QL-3 to QL-2 only if absent');
+});
+test.each(['inwardIssue', 'outwardIssue'])('Relates links to the CAPA are recognised in %s', (direction) => {
+  const links = (type, issue) => ({ fields: { issuelinks: [{ type: { name: type }, [direction]: issue }] } });
+  expect(hasCapaLink(links('Relates', { id: '2' }), { id: '2', key: 'QL-2' })).toBe(true);
+  expect(hasCapaLink(links('Relates', { key: 'QL-2' }), { id: '2', key: 'QL-2' })).toBe(true);
+  expect(hasCapaLink(links('Blocks', { id: '2' }), { id: '2', key: 'QL-2' })).toBe(false);
+  expect(hasCapaLink(links('Relates', { id: '3' }), { id: '2', key: 'QL-2' })).toBe(false);
 });

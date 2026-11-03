@@ -19,8 +19,9 @@ export function issueCapture(issue) {
 export async function findMatches(issueId, budget = loadBudget(), authorised = new Map(), undisplayed = new Set()) {
   const started = Date.now();
   const result = { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
-    matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false,
+    matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false,
     notShown: { strong: 0, relatedRevision: 0 } };
+  const unchecked = new Map();
   try {
     const response = await budget.run(() => api.asUser().requestJira(
       route`/rest/api/3/issue/${issueId}/properties/qualityloop`, { headers }));
@@ -54,7 +55,10 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
           if (!/^\d+$/.test(id) || seen.has(id)) continue;
           seen.add(id);
           const classified = matchCaptures(nc, [issueCapture(issue)]);
-          for (const kind of allowed) if (classified[kind].length) selected.push({ id, kind, match: classified[kind][0] });
+          for (const kind of allowed) if (classified[kind].length) {
+            selected.push({ id, kind, match: classified[kind][0] });
+            if (kind !== 'otherRelated') unchecked.set(id, kind);
+          }
         }
         const more = data.isLast !== true && (!!data.nextPageToken || data.isLast === false);
         token = more ? data.nextPageToken : undefined;
@@ -64,32 +68,36 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
         if (flag === 'otherRelatedIncomplete' && fetched >= limit) result[flag] = true;
         if (fetched >= limit || pages >= limit) break;
       } while (token);
-      // Count only asUser search results, never a Jira total. Select the newest
-      // 25 per signature class before direct reads or decision-history loading.
-      const displayed = [];
-      for (const kind of allowed) {
-        const sorted = selected.filter((item) => item.kind === kind)
-          .sort((a, b) => b.match.closedDate.localeCompare(a.match.closedDate) || a.match.key.localeCompare(b.match.key));
-        const limit = kind === 'otherRelated' ? sorted.length : MATCH_DISPLAY_LIMIT;
-        displayed.push(...sorted.slice(0, limit));
-        if (kind !== 'otherRelated') result.notShown[kind] = sorted.length - Math.min(sorted.length, limit);
-        for (const item of sorted.slice(limit)) undisplayed.add(item.id);
-      }
-      // Only displayed cards get direct reads, in batches of at most five.
-      for (let offset = 0; offset < displayed.length; offset += 5) {
-        const batch = await Promise.all(displayed.slice(offset, offset + 5).map(async ({ id, kind }) => {
-          const fresh = await budget.run(() => api.asUser().requestJira(
-            route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`, { headers }));
-          if ([403, 404].includes(fresh.status)) return null;
-          checkJira(fresh);
-          const issue = await budget.run(() => fresh.json());
-          if (String(issue.id) !== id) return null;
-          const match = matchCaptures(nc, [issueCapture(issue)])[kind][0];
-          return match ? { issue, kind, match } : null;
-        }));
-        for (const item of batch.filter(Boolean)) {
-          authorised.set(item.match.id, item.issue);
-          result[item.kind].push(item.match);
+      // Track candidates from this asUser snapshot only, never a Jira total.
+      // A candidate is not a verified match until its direct read completes.
+      const sortedClasses = allowed.map((kind) => [kind, selected.filter((item) => item.kind === kind)
+        .sort((a, b) => b.match.closedDate.localeCompare(a.match.closedDate) || a.match.key.localeCompare(b.match.key))]);
+      for (const [kind, sorted] of sortedClasses) {
+        const limit = kind === 'otherRelated' ? result[kind].length + sorted.length : MATCH_DISPLAY_LIMIT;
+        // Refill after denied or changed records, without reading beyond the
+        // remaining display slots. All work shares the original time budget.
+        for (let offset = 0; offset < sorted.length && result[kind].length < limit;) {
+          const candidates = sorted.slice(offset, offset + Math.min(5, limit - result[kind].length));
+          offset += candidates.length;
+          const batch = await Promise.allSettled(candidates.map(async ({ id }) => {
+            const fresh = await budget.run(() => api.asUser().requestJira(
+              route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`, { headers }));
+            if ([403, 404].includes(fresh.status)) { unchecked.delete(id); return null; }
+            checkJira(fresh);
+            const issue = await budget.run(() => fresh.json());
+            unchecked.delete(id);
+            if (String(issue.id) !== id) return null;
+            const match = matchCaptures(nc, [issueCapture(issue)])[kind][0];
+            return match ? { issue, kind, match } : null;
+          }));
+          for (const settled of batch) {
+            if (settled.status !== 'fulfilled' || !settled.value) continue;
+            const item = settled.value;
+            authorised.set(item.match.id, item.issue);
+            result[item.kind].push(item.match);
+          }
+          const failure = batch.find((item) => item.status === 'rejected');
+          if (failure) throw failure.reason;
         }
       }
     }
@@ -97,6 +105,11 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
     if (!(error instanceof BudgetExceeded)) throw error;
     result.incomplete = true;
   }
+  for (const [id, kind] of unchecked) {
+    result.notShown[kind] += 1;
+    undisplayed.add(id);
+  }
+  result.uncheckedCandidates = unchecked.size > 0;
   for (const kind of classes) result[kind].sort((a, b) => b.closedDate.localeCompare(a.closedDate) || a.key.localeCompare(b.key));
   return { ...result, elapsedMs: Date.now() - started };
 }
