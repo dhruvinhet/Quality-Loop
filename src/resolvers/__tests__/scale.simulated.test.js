@@ -115,11 +115,44 @@ test.each([403, 404])('SIMULATED hidden search records and revoked cards (%i) di
   expect(JSON.stringify(result)).not.toMatch(/SECRET|total/);
 });
 
-test('SIMULATED cards that changed classification are dropped, never moved into another class', async () => {
+test('SIMULATED signature cards move to their freshly re-read class in both directions', async () => {
   seed(5);
   changed.set('100', issue(100, { ...corpus[0].properties.qualityloop, partOriginal: 'P-4471-B' }));
+  changed.set('101', issue(101, { ...corpus[1].properties.qualityloop, partOriginal: 'P-4471-A' }));
   const result = await handler.loadEvidence({ context });
-  expect([...result.strong, ...result.relatedRevision].some(({ id }) => id === '100')).toBe(false);
+  expect(result.strong.map(({ id }) => id)).toEqual(['101']);
+  expect(result.relatedRevision.map(({ id }) => id)).toEqual(['100']);
+  expect(result.pairs).toHaveProperty('100');
+  expect(result.pairs).toHaveProperty('101');
+  expect(result).toMatchObject({ notShown: { strong: 0, relatedRevision: 0 }, uncheckedCandidates: false });
+});
+
+test.each(['strong', 'relatedRevision'])('SIMULATED reclassification into %s retains the newest 25 without duplicate reads', async (destination) => {
+  corpus = Array.from({ length: 60 }, (_, i) => issue(100 + i, { ...nc, recordType: 'CAPA',
+    partOriginal: i < 30 ? 'P-4471-A' : 'P-4471-B', closedDate: '2026-10-01' }));
+  const sourceRows = corpus.slice(destination === 'strong' ? 30 : 0, destination === 'strong' ? 60 : 30);
+  for (const row of sourceRows) changed.set(row.id, issue(row.id, { ...row.properties.qualityloop,
+    partOriginal: destination === 'strong' ? 'P-4471-A' : 'P-4471-B', closedDate: '2026-10-30' }));
+  const authorised = new Map();
+  const undisplayed = new Set();
+  const result = await findMatches('1', loadBudget(), authorised, undisplayed);
+  expect(result[destination]).toHaveLength(25);
+  expect(result[destination].every(({ closedDate }) => closedDate === '2026-10-30')).toBe(true);
+  expect(result[destination].map(({ id }) => id)).toEqual(sourceRows.slice(0, 25).map(({ id }) => id));
+  expect(result[destination === 'strong' ? 'relatedRevision' : 'strong']).toEqual([]);
+  expect(authorised.size).toBe(25);
+  // Only unread snapshot candidates count as unchecked, never completed moves.
+  expect(result.notShown).toEqual(destination === 'strong' ? { strong: 5, relatedRevision: 0 } : { strong: 0, relatedRevision: 30 });
+  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
+  expect(new Set(directIds).size).toBe(directIds.length);
+  expect(sourceRows.slice(25).every(({ id }) => undisplayed.has(id))).toBe(true);
+});
+
+test('SIMULATED a signature re-read outside both signature classes is still excluded', async () => {
+  seed(5);
+  changed.set('100', issue(100, { ...corpus[0].properties.qualityloop, failureMode: 'FM-02' }));
+  const result = await handler.loadEvidence({ context });
+  expect([...result.strong, ...result.relatedRevision, ...result.otherRelated].some(({ id }) => id === '100')).toBe(false);
 });
 
 test('SIMULATED cards use the fresh Jira status category while matching on recorded closure', async () => {

@@ -126,7 +126,7 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
     try {
       const result = await invoke('repairConcernLink', { capaId: match.id, decisionId: linkRepair.decisionId, confirmation: linkRepair.confirmation });
       setMessage(result?.message || result?.error || 'Link repair is unavailable with your current issue access.');
-    } catch { setMessage('The repair response was interrupted. Refresh history and use Repair link again; another task will not be created.'); }
+    } catch { setMessage('The verification response was interrupted. Refresh history and use Verify link again; another task will not be created.'); }
     finally { setLinkRepair(null); busyRef.current = false; setBusy(false); onChanged(); }
   };
   const eligible = data?.concernAllowed ?? (pairState?.state === 'CONFIRMED' || !match.effectivenessEvidenceUrl?.trim());
@@ -153,7 +153,7 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
       {item.reasonCategory && <Text>{`Category: ${item.reasonCategory.toLowerCase().replaceAll('_', ' ')}`}</Text>}
       {(item.evidenceLinks ?? []).filter(validEvidenceUrl).map((url, i) => <Text key={`${i}:${url}`}><Link href={url} openNewTab>{url}</Link></Text>)}
       {item.taskKey && <Text>Re-review task: <Link href={`/browse/${encodeURIComponent(item.taskKey)}`}>{item.taskKey}</Link></Text>}
-      {item.taskKey && !item.taskLinked && <Button isDisabled={busy || !canRecover} onClick={() => prepareRepair(item.id)}>Repair link</Button>}
+      {item.taskKey && !item.taskLinked && <Button isDisabled={busy || !canRecover} onClick={() => prepareRepair(item.id)}>Verify link</Button>}
       {item.followupUnconfirmed && <>
         <Text>A follow-up was started but not confirmed.</Text>
         <Button isDisabled={busy} onClick={() => checkTask(item.id)}>Check for task</Button>
@@ -176,10 +176,10 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
           <Button appearance="primary" isDisabled={busy} onClick={confirmTask}>Confirm task key</Button></ModalFooter>
       </Modal>}
       {linkRepair && <Modal onClose={() => { if (!busy) setLinkRepair(null); }}>
-        <ModalHeader><ModalTitle>Confirm link repair</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>Confirm link verification</ModalTitle></ModalHeader>
         <ModalBody><Text>{linkRepair.confirmation}</Text></ModalBody>
         <ModalFooter><Button isDisabled={busy} onClick={() => setLinkRepair(null)}>Cancel</Button>
-          <Button appearance="primary" isDisabled={busy} onClick={repairLink}>Confirm repair</Button></ModalFooter>
+          <Button appearance="primary" isDisabled={busy} onClick={repairLink}>Confirm verification</Button></ModalFooter>
       </Modal>}
     </ModalTransition>
   </Stack>;

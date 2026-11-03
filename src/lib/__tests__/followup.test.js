@@ -53,7 +53,7 @@ test('only old claims allow unmarked tasks, with an explicit legacy warning', ()
   expect(recoveryMarkerKind(task, '2:1:decision', { ...decision, taskMarkerVersion: undefined })).toBe('legacy');
   expect(recoveryMarkerKind({ properties: { 'qualityloop-followup': null } }, '2:1:decision', decision)).toBeNull();
   expect(recoveryConfirmation('QL-3', 'QL-2', true)).toContain('This task has no QualityLoop marker; confirm only if you know it is the follow-up task.');
-  expect(repairLinkConfirmation('QL-3', 'QL-2')).toContain('Create a Relates link from QL-3 to QL-2 only if absent');
+  expect(repairLinkConfirmation('QL-3', 'QL-2')).toContain('Check that QL-3 is linked to the CAPA; add a Relates link only if it is missing.');
 });
 test.each(['inwardIssue', 'outwardIssue'])('Relates links to the CAPA are recognised in %s', (direction) => {
   const links = (type, issue) => ({ fields: { issuelinks: [{ type: { name: type }, [direction]: issue }] } });

@@ -172,7 +172,7 @@ test('unbrowsable current issue returns no history or counts and never queries s
 });
 test('prepare only lists writes; creating a task requires the exact confirmed listing', async () => {
   const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
-  expect(proposal).toEqual({ confirmation: "Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002. Set the qualityloop-followup marker property on the new task (schemaVersion, decisionId, capaId, ncId, claimedAt). Assignee: none (the CAPA has no assignee)." });
+  expect(proposal).toEqual({ confirmation: "Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002. Add a hidden QualityLoop marker to the new task so it can be identified later. Assignee: none (the CAPA has no assignee)." });
   expect(proposal.confirmation).not.toContain('If Jira rejects');
   expect(store.claimTask).not.toHaveBeenCalled();
   expect(await handler.createConcernTask({ context, payload: { ...followup, confirmation: 'yes' } })).toHaveProperty('error');
@@ -252,7 +252,7 @@ test.each(['CAPA Owner', undefined, null, '', '   '])('confirmation and success 
   withAssignee({ accountId: 'private-owner-id', displayName });
   const label = displayName?.trim() || "the CAPA's current assignee";
   const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
-  expect(proposal.confirmation).toBe(`Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002. Set the qualityloop-followup marker property on the new task (schemaVersion, decisionId, capaId, ncId, claimedAt). Intended assignee: ${label}. If Jira rejects this assignee, the task is created unassigned.`);
+  expect(proposal.confirmation).toBe(`Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002. Add a hidden QualityLoop marker to the new task so it can be identified later. Intended assignee: ${label}. If Jira rejects this assignee, the task is created unassigned.`);
   expect(JSON.stringify(proposal)).not.toContain('private-owner-id');
   const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: proposal.confirmation } });
   expect(result.message).toContain(`assigned to ${label}.`);
@@ -549,10 +549,25 @@ function repairScenario(links = []) {
   return task;
 }
 const repairPayload = { capaId: '20002', decisionId };
+
+test.each([true, false])('legacy task verification with existing link=%s checks before creating and stays idempotent', async (existing) => {
+  const task = repairScenario(existing ? [{ type: { name: 'Relates' }, outwardIssue: { id: '20002' } }] : []);
+  delete task.properties['qualityloop-followup'];
+  store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'legacy-claim', taskClaimedAt: claimedAt, taskKey: task.key });
+  const proposal = await handler.prepareRepairLink({ context, payload: repairPayload });
+  expect(proposal.confirmation).toBe('Check that QL-30003 is linked to the CAPA; add a Relates link only if it is missing. CAPA: QL-20002. Then record link completion. This task has no QualityLoop marker; confirm only if you know it is the follow-up task.');
+  expect(requestJira.mock.calls.some(([, options]) => ['POST', 'PUT'].includes(options?.method))).toBe(false);
+  const confirmed = { ...repairPayload, confirmation: proposal.confirmation };
+  await handler.repairConcernLink({ context, payload: confirmed });
+  await handler.repairConcernLink({ context, payload: confirmed });
+  expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issueLink')).toHaveLength(existing ? 0 : 1);
+  expect(requestJira.mock.calls.filter(([, options]) => options?.method === 'PUT')).toHaveLength(0);
+  expect(store.saveTaskLinked).toHaveBeenCalledTimes(2);
+});
 test.each(['inwardIssue', 'outwardIssue'])('repair of an existing %s Relates link writes no link and records completion', async (direction) => {
   repairScenario([{ type: { name: 'Relates' }, [direction]: { id: '20002' } }]);
   const proposal = await handler.prepareRepairLink({ context, payload: repairPayload });
-  expect(proposal.confirmation).toContain('Create a Relates link from QL-30003 to QL-20002 only if absent');
+  expect(proposal.confirmation).toContain('Check that QL-30003 is linked to the CAPA; add a Relates link only if it is missing.');
   expect(store.saveTaskLinked).not.toHaveBeenCalled();
   expect(await handler.repairConcernLink({ context, payload: { ...repairPayload, confirmation: proposal.confirmation } }))
     .toHaveProperty('message', expect.stringContaining('verified and recorded'));

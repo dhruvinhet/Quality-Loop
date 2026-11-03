@@ -110,7 +110,7 @@ test.each([undefined, { pairStateIncomplete: true, history: [] },
     expect(buttons.every((node) => node.props.isDisabled)).toBe(true);
   });
 
-test('a saved task with no link completion offers Repair link and requires a separate confirmation', async () => {
+test('a saved task with no link completion offers Verify link and requires a separate confirmation', async () => {
   const states = [];
   let cursor = 0;
   React.useState.mockImplementation((initial) => {
@@ -125,26 +125,37 @@ test('a saved task with no link completion offers Repair link and requires a sep
   const render = () => { cursor = 0; return nodes(DecisionDetails(props)); };
   let tree = render();
   expect(invoke).not.toHaveBeenCalled();
-  const confirmation = 'Create a Relates link from QL-3 to QL-2 only if absent, then record link completion.';
+  const confirmation = 'Check that QL-3 is linked to the CAPA; add a Relates link only if it is missing. CAPA: QL-2. Then record link completion.';
   invoke.mockResolvedValueOnce({ confirmation });
-  await tree.find((node) => node.type === 'Button' && node.props.children === 'Repair link').props.onClick();
+  await tree.find((node) => node.type === 'Button' && node.props.children === 'Verify link').props.onClick();
   expect(invoke.mock.calls).toEqual([['prepareRepairLink', { capaId: '2', decisionId: 'decision' }]]);
   tree = render();
-  expect(tree).toContain('Confirm link repair');
+  expect(tree).toContain('Confirm link verification');
   expect(tree).toContain(confirmation);
   expect(invoke).toHaveBeenCalledTimes(1);
   invoke.mockResolvedValueOnce({ message: 'The follow-up link is verified and recorded.' });
-  await tree.find((node) => node.type === 'Button' && node.props.children === 'Confirm repair').props.onClick();
+  await tree.find((node) => node.type === 'Button' && node.props.children === 'Confirm verification').props.onClick();
   expect(invoke).toHaveBeenLastCalledWith('repairConcernLink', { capaId: '2', decisionId: 'decision', confirmation });
   expect(props.onChanged).toHaveBeenCalledTimes(1);
 });
 
-test.each([true, false])('completed link=%s controls Repair link visibility', (taskLinked) => {
+test.each([true, false])('completed link=%s controls Verify link visibility', (taskLinked) => {
   const tree = nodes(DecisionDetails({ match: { id: '2' }, readOnly: true, data: {
     pairState: { version: 1, state: 'CONCERN_RAISED' }, history: [{ id: 'decision', type: 'CONCERN', reason: 'Review',
       createdAt: '2026-10-21', authorDisplayName: 'Engineer', taskKey: 'QL-3', taskLinked }],
   } }));
-  const repair = tree.find((node) => node.type === 'Button' && node.props.children === 'Repair link');
+  const repair = tree.find((node) => node.type === 'Button' && node.props.children === 'Verify link');
   expect(!!repair).toBe(!taskLinked);
   if (repair) expect(repair.props.isDisabled).toBe(true); // read-only side view
+});
+
+test('legacy history with a saved task key and no completion flag is labelled Verify link', () => {
+  const tree = nodes(DecisionDetails({ match: { id: '2' }, readOnly: false, canRecover: true, data: {
+    pairState: { version: 1, state: 'CONCERN_RAISED' }, history: [{ id: 'old-decision', type: 'CONCERN', reason: 'Review',
+      createdAt: '2026-10-21', authorDisplayName: 'Engineer', taskKey: 'QT-3' }],
+  } }));
+  const labels = tree.filter((node) => node.type === 'Button').map((node) => node.props.children);
+  expect(labels).toContain('Verify link');
+  expect(labels).not.toContain('Repair link');
+  expect(invoke).not.toHaveBeenCalled();
 });

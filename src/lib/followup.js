@@ -22,7 +22,7 @@ export function hasCapaLink(task, capa) {
 }
 
 export function repairLinkConfirmation(taskKey, capaKey, { writeMarker = false, legacy = false } = {}) {
-  return `Create a Relates link from ${taskKey} to ${capaKey} only if absent, then record link completion.`
+  return `Check that ${taskKey} is linked to the CAPA; add a Relates link only if it is missing. CAPA: ${capaKey}. Then record link completion.`
     + (writeMarker ? ` Set the ${FOLLOWUP_PROPERTY} marker property on ${taskKey} for this decision.` : '')
     + (legacy ? ` ${legacyMarkerWarning}` : '');
 }

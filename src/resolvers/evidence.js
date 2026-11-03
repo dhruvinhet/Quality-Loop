@@ -87,14 +87,24 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
             const issue = await budget.run(() => fresh.json());
             unchecked.delete(id);
             if (String(issue.id) !== id) return null;
-            const match = matchCaptures(nc, [issueCapture(issue)])[kind][0];
-            return match ? { issue, kind, match } : null;
+            const classified = matchCaptures(nc, [issueCapture(issue)]);
+            const freshKind = allowed.find((name) => classified[name].length);
+            return freshKind ? { issue, kind: freshKind, match: classified[freshKind][0] } : null;
           }));
           for (const settled of batch) {
             if (settled.status !== 'fulfilled' || !settled.value) continue;
             const item = settled.value;
             authorised.set(item.match.id, item.issue);
             result[item.kind].push(item.match);
+            if (item.kind !== 'otherRelated') {
+              // A re-read may move into a full signature class. Retain its
+              // newest verified matches without exceeding the per-class cap.
+              result[item.kind].sort((a, b) => b.closedDate.localeCompare(a.closedDate) || a.key.localeCompare(b.key));
+              for (const omitted of result[item.kind].splice(MATCH_DISPLAY_LIMIT)) {
+                authorised.delete(omitted.id);
+                undisplayed.add(omitted.id);
+              }
+            }
           }
           const failure = batch.find((item) => item.status === 'rejected');
           if (failure) throw failure.reason;

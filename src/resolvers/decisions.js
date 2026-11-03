@@ -346,7 +346,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
   define('repairConcernLink', ['capaId', 'decisionId', 'confirmation'], async (issueId, payload, context) => {
     const result = await repairContext(issueId, payload, context);
     if (!result || result.error || result.message) return result;
-    if (payload.confirmation !== result.confirmation) return { error: 'The proposed repair changed. Open Repair link again.' };
+    if (payload.confirmation !== result.confirmation) return { error: 'The proposed verification changed. Open Verify link again.' };
     const { task, capa, decision } = result;
     // Resolve the site-specific link ID first, then re-read both issues immediately
     // before the confirmed write. Jira also treats a duplicate link as success.
@@ -355,12 +355,12 @@ export function registerDecisionResolvers({ define, findMatches }) {
     const fresh = await repairContext(issueId, payload, context);
     if (!fresh || fresh.error || fresh.message) return fresh;
     if (fresh.confirmation !== payload.confirmation || String(fresh.task.id) !== String(task.id) || String(fresh.capa.id) !== String(capa.id)) {
-      return { error: 'The proposed repair changed. Open Repair link again.' };
+      return { error: 'The proposed verification changed. Open Verify link again.' };
     }
     if (fresh.writeMarker && !await setFollowupMarker(task.id, payload.decisionId, fresh.decision)) return null;
     if (!hasCapaLink(fresh.task, fresh.capa)) {
       const linked = await linkTask(fresh.task, fresh.capa, type);
-      if (!linked.ok) return { error: 'Link repair could not finish. Check Jira and try Repair link again.' };
+      if (!linked.ok) return { error: 'Link verification could not finish. Check Jira and try Verify link again.' };
     }
     if (!await saveTaskLinked(payload.decisionId, decision)) return { error: 'The follow-up metadata changed. Refresh history before continuing.' };
     return { message: 'The follow-up link is verified and recorded.' };
@@ -433,7 +433,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
       const linked = await linkTask(task, capa, linkType);
       if (!linked.ok) return { error: 'Recorded. Follow-up linking could not finish. Check Jira before creating another task.' };
       if (!await saveTaskLinked(payload.decisionId, { ...claimed, taskKey })) {
-        return { error: 'Recorded. Link completion could not be recorded. Refresh history and use Repair link.' };
+        return { error: 'Recorded. Link completion could not be recorded. Refresh history and use Verify link.' };
       }
       const assignee = createdTask.fields?.assignee;
       const ownership = assignee?.accountId ? `assigned to ${assignee.displayName?.trim() || "the CAPA's current assignee"}` : 'unassigned';
