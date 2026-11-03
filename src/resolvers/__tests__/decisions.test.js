@@ -170,7 +170,9 @@ test('unbrowsable current issue returns no history or counts and never queries s
   expect(store.queryRecords).not.toHaveBeenCalled();
 });
 test('prepare only lists writes; creating a task requires the exact confirmed listing', async () => {
-  expect(await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } })).toEqual({ confirmation: followup.confirmation });
+  const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
+  expect(proposal).toEqual({ confirmation: "Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002. Assignee: none (the CAPA has no assignee)." });
+  expect(proposal.confirmation).not.toContain('If Jira rejects');
   expect(store.claimTask).not.toHaveBeenCalled();
   expect(await handler.createConcernTask({ context, payload: { ...followup, confirmation: 'yes' } })).toHaveProperty('error');
   expect(store.claimTask).not.toHaveBeenCalled();
@@ -249,7 +251,7 @@ test.each(['CAPA Owner', undefined, null, '', '   '])('confirmation and success 
   withAssignee({ accountId: 'private-owner-id', displayName });
   const label = displayName?.trim() || "the CAPA's current assignee";
   const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
-  expect(proposal.confirmation).toContain(`Intended assignee: ${label}.`);
+  expect(proposal.confirmation).toBe(`Create task in QL: 'Effectiveness re-review: QL-20002' and link it to QL-20002. Intended assignee: ${label}. If Jira rejects this assignee, the task is created unassigned.`);
   expect(JSON.stringify(proposal)).not.toContain('private-owner-id');
   const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: proposal.confirmation } });
   expect(result.message).toContain(`assigned to ${label}.`);

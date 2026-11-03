@@ -15,16 +15,25 @@ test('direct recovery requires exact summary, same project and creation strictly
   }
   expect(isRecoveryTask(null, '123', 'QL-2', claim)).toBe(false);
 });
-test('confirmations list the intended ownership and the separate recovery write', () => {
-  expect(followupConfirmation('QL', 'QL-2')).toContain('Intended assignee: unassigned');
+test('unassigned confirmations omit the redundant rejection fallback', () => {
+  for (const assignee of [undefined, null, {}]) {
+    const confirmation = followupConfirmation('QL', 'QL-2', assignee);
+    expect(confirmation.endsWith('Assignee: none (the CAPA has no assignee).')).toBe(true);
+    expect(confirmation).not.toContain('If Jira rejects');
+  }
+});
+
+test('assigned confirmations explain the fallback without exposing account IDs', () => {
   const named = followupConfirmation('QL', 'QL-2', { accountId: 'owner-id', displayName: 'CAPA Owner' });
-  expect(named).toContain('Intended assignee: CAPA Owner.');
+  expect(named).toContain('Intended assignee: CAPA Owner. If Jira rejects this assignee, the task is created unassigned.');
   expect(named).not.toContain('owner-id');
   for (const displayName of [undefined, null, '', '   ']) {
     const unnamed = followupConfirmation('QL', 'QL-2', { accountId: 'owner-id', displayName });
-    expect(unnamed).toContain("Intended assignee: the CAPA's current assignee.");
+    expect(unnamed).toContain("Intended assignee: the CAPA's current assignee. If Jira rejects this assignee, the task is created unassigned.");
     expect(unnamed).not.toContain('owner-id');
   }
-  expect(followupConfirmation('QL', 'QL-2')).toContain('If Jira rejects the assignee, create unassigned');
+});
+
+test('recovery confirmation lists the separate recording write', () => {
   expect(recoveryConfirmation('QL-3', 'QL-2')).toBe('Record QL-3 as the follow-up task for the recorded effectiveness concern on QL-2.');
 });

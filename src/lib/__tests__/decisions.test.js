@@ -51,6 +51,14 @@ test('SUPERSEDE corrects the explanation while preserving an established state',
   expect(() => nextState('SUPERSEDE', emptyPairState(), {})).toThrow();
   for (const state of ['CONFIRMED', 'NOT_RECURRENCE', 'CONCERN_RAISED']) expect(nextState('SUPERSEDE', { state }, {})).toBe(state);
 });
-test('confirmation names the exact task and CAPA link', () => {
-  expect(followupConfirmation('QL', 'QL-42')).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Intended assignee: unassigned. If Jira rejects the assignee, create unassigned.");
+test('confirmation for an unassigned CAPA ends with no assignee and omits the rejection fallback', () => {
+  const confirmation = followupConfirmation('QL', 'QL-42');
+  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Assignee: none (the CAPA has no assignee).");
+  expect(confirmation).not.toContain('If Jira rejects');
+});
+
+test('confirmation for an assigned CAPA shows only the display name and explains the rejection fallback', () => {
+  const confirmation = followupConfirmation('QL', 'QL-42', { accountId: 'private-owner-id', displayName: ' CAPA Owner ' });
+  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Intended assignee: CAPA Owner. If Jira rejects this assignee, the task is created unassigned.");
+  expect(confirmation).not.toContain('private-owner-id');
 });
