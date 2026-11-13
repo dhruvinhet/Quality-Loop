@@ -39,7 +39,7 @@ That “no AI” choice is product-correct for regulated manufacturing. It is al
 
 | Module | Key / handler | UI | Role |
 |---|---|---|---|
-| `jira:issuePanel` | key **`qualityloop-issue-panel`** (renamed in T28; baseline used a scaffold key), `index.handler` | `src/frontend/index.jsx` | Capture form, evidence, decisions |
+| `jira:issuePanel` | key **`qualityloop-hello-world-issue-panel`** (scaffold leftover), `index.handler` | `src/frontend/index.jsx` | Capture form, evidence, decisions |
 | `jira:issueContext` | `qualityloop-evidence-context`, same resolver | `src/frontend/issueContext.jsx` | Read-only side view |
 | `jira:projectPage` | `qualityloop-samples`, `index.sampleHandler` | `src/frontend/projectPage.jsx` | 5-issue DEMO sample |
 | `jira:adminPage` | `qualityloop-data`, `index.adminHandler`, `isAdmin: true` | `src/frontend/adminPage.jsx` | Getting started, Data health, index repair |
@@ -124,7 +124,7 @@ Treat these as constraints in Codex prompts:
 | QL-010 | High | Scale | First hint JQL fetches all CAPAs in 365 days, capped at 50 — typos will be missed | M |
 | QL-011 | High | Product | Match JQL is site-wide with no project-scope option | M |
 | QL-012 | High | Submission | Name clash with a 2025 Codegeist project also called “Quality Loop” | S |
-| QL-013 | High | Design | Scaffold module key and default Atlassian icon (panel now `qualityloop-issue-panel`) | S |
+| QL-013 | High | Design | Scaffold module key `qualityloop-hello-world-issue-panel` and default Atlassian icon | S |
 | QL-014 | High | Submission | No theme-framed pitch; “no AI” will be scored as ignoring the 2026 brief if left raw | M |
 | QL-015 | Medium | Correctness | Match JQL uses `qlClosed <= detectedDate`; matcher requires `<` — same-day rows waste the 200 cap | S |
 | QL-016 | Medium | Correctness | Supplier and line are compared raw (case/space sensitive); failure mode is normalised | S |
@@ -475,14 +475,9 @@ The permission model is a strength (see §1.3). The issues below are real incons
 
 ### QL-013 — Scaffold issue-panel key and default icon
 
-T28 maintenance note: module-key references in this review and earlier task docs
-now use `qualityloop-issue-panel`. The findings below describe the pre-T28
-scaffold key and stock icon; current implementation and owner steps are in
-`docs/tasks/T28.md`.
-
 - **Severity:** High  
 - **Category:** Design  
-- **Location:** Baseline `manifest.yml:27` used the scaffold panel key, now `qualityloop-issue-panel`. The baseline `icon:` was the stock Atlassian Forge panel icon and README mermaid named the scaffold key. Changing a **module key** on an already-installed app can break the installed module — **needs verification**; if already installed on the owner’s site, changing the key may require a reinstall or a documented migration.  
+- **Location:** `manifest.yml:27` — `key: qualityloop-hello-world-issue-panel`. `manifest.yml` `icon:` is the stock Atlassian Forge panel icon. README mermaid at line 45 still names that key. Changing a **module key** on an already-installed app can break the installed module — **needs verification**; if already installed on the owner’s site, changing the key may require a reinstall or a documented migration.  
 - **Why it matters:** First thing a judge sees in the manifest and possibly in the Jira apps list. Looks unfinished (Design, Presentation).  
 - **Solution:** Rename to `qualityloop-issue-panel` **if** a clean reinstall is acceptable for all install sites (this is pre-Marketplace; likely yes). Add a simple custom icon (SVG, quality/recurrence motif; not a copy of Atlassian or the 2025 Quality Loop). Update README mermaid, T-docs that cite the key, and any tests that snapshot the key. Follow Forge’s rules for icon size/format (**needs verification** in Forge docs).  
 - **Acceptance:** No `hello-world` string in `manifest.yml` or README. Custom icon appears on the panel. App still loads in a fresh install.  
@@ -720,7 +715,7 @@ scaffold key and stock icon; current implementation and owner steps are in
   - `AGENTS.md` line 21: “The decision is stored in Forge app storage **(built later)**.” Storage has been implemented since T4.
   - `README.md:63`: “Runs on Atlassian eligibility has not been verified here.” Manifest has no egress and no LLM — likely eligible, **needs verification** against the current program checklist (Forge docs). It is **not** a 2026 bonus prize (it was in 2025).
   - `package.json` `"main": "index.js"` — that file does not exist at the repo root. Forge uses `manifest.yml` handlers (`src/index.js`). Harmless but sloppy.
-  - README mermaid used the baseline scaffold key (now `qualityloop-issue-panel`, QL-013/T28).
+  - README mermaid still uses `qualityloop-hello-world-issue-panel` (QL-013).
 - **Solution:** Fix the AGENTS sentence; set `"main": "src/index.js"` or remove `main`; after verifying Runs on Atlassian, replace the sentence with a dated yes/no and a checklist link; keep no-egress.  
 - **Acceptance:** No “built later.” `main` points at a real file or is omitted. README is consistent with `manifest.yml`.  
 - **Effort:** S.
