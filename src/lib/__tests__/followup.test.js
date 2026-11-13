@@ -19,7 +19,7 @@ test('direct recovery requires exact summary, same project and creation strictly
 test('unassigned confirmations omit the redundant rejection fallback', () => {
   for (const assignee of [undefined, null, {}]) {
     const confirmation = followupConfirmation('QL', 'QL-2', assignee);
-    expect(confirmation.endsWith('Assignee: none (the CAPA has no assignee).')).toBe(true);
+    expect(confirmation.split('\n').includes('Assignee: none (the CAPA has no assignee).')).toBe(true);
     expect(confirmation).not.toContain('If Jira rejects');
   }
 });
@@ -72,7 +72,7 @@ test('only old claims allow unmarked tasks, with an explicit legacy warning', ()
   expect(recoveryMarkerKind({ properties: { 'qualityloop-followup': null } }, '2:1:decision', decision)).toBeNull();
   expect(recoveryConfirmation('QL-3', 'QL-2', true)).toContain('This task has no QualityLoop marker; confirm only if you know it is the follow-up task.');
   expect(repairLinkConfirmation('QL-3', 'QL-2', { ncKey: 'QL-1', description: 'Details' }))
-    .toContain('Check Relates links to CAPA QL-2 and NC QL-1; add each link only if missing.');
+    .toContain('Check the Relates link to CAPA QL-2; add it only if missing.\nCheck the Relates link to NC QL-1; add it only if missing.');
 });
 test.each(['inwardIssue', 'outwardIssue'])('Relates links to the CAPA are recognised in %s', (direction) => {
   const links = (type, issue) => ({ fields: { issuelinks: [{ type: { name: type }, [direction]: issue }] } });
@@ -86,7 +86,7 @@ test('ADF description contains the decision, linked NC summary, reason/category,
   const description = followupDescription({ type: 'CONCERN', authorAccountId: 'private-account-id', reason: 'Different weld cell',
     reasonCategory: 'DATA_ERROR', evidenceLinks: ['https://example.com/report', 'http://example.com/old',
       'https://user:pass@example.com/private', 'javascript:alert(1)'] },
-  { key: 'QL-1', self: 'https://site.atlassian.net/rest/api/3/issue/1', fields: { summary: 'Cracked weld' } }, { key: 'QL-2' });
+  { key: 'QL-1', self: 'https://api.atlassian.com/ex/jira/cloud-id/rest/api/3/issue/1', fields: { summary: 'Cracked weld' } }, { key: 'QL-2' }, 'https://site.atlassian.net');
   expect(description).toEqual({ type: 'doc', version: 1, content: [
     { type: 'paragraph', content: [{ type: 'text', text: 'Decision: Effectiveness concern' }] },
     { type: 'paragraph', content: [{ type: 'text', text: 'NC: ' }, { type: 'text', text: 'QL-1: Cracked weld',
@@ -100,6 +100,27 @@ test('ADF description contains the decision, linked NC summary, reason/category,
   ] });
   expect(JSON.stringify(description)).not.toMatch(/private-account-id|accountId|user:pass|javascript:|\/old/);
   expect(descriptionPreview(description)).toContain('NC: QL-1: Cracked weld');
+  expect(descriptionPreview(description)).toContain('(https://site.atlassian.net/browse/QL-1)');
+  expect(JSON.stringify(description)).not.toContain('api.atlassian.com');
+});
+
+test.each([undefined, null, '', 'http://site.atlassian.net', 'https://api.atlassian.com', 'https://api.atlassian.com.',
+  'https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1', 'https://user:pass@site.atlassian.net']) (
+  'missing or unsafe site URL %j leaves the NC as plain text, ignoring self', (siteUrl) => {
+    const description = followupDescription({ type: 'CONCERN', reason: 'Review' },
+      { key: 'QL-1', self: 'https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1', fields: { summary: 'Crack' } },
+      { key: 'QL-2' }, siteUrl);
+    expect(description.content[1].content).toEqual([{ type: 'text', text: 'NC: ' }, { type: 'text', text: 'QL-1: Crack' }]);
+    expect(JSON.stringify(description)).not.toContain('href');
+  });
+
+test('creation and verification previews retain terminal punctuation without adding a second full stop', () => {
+  const description = 'Decision: Effectiveness concern\nOpen the QualityLoop panel on QL-1 to see the full history.';
+  for (const confirmation of [followupConfirmation('QL', 'QL-2', null, { ncKey: 'QL-1', typeName: 'Task', description }),
+    repairLinkConfirmation('QL-3', 'QL-2', { ncKey: 'QL-1', description })]) {
+    expect(confirmation.split('\n')).toContain('Open the QualityLoop panel on QL-1 to see the full history.');
+    expect(confirmation).not.toMatch(/ADF|history\.\./);
+  }
 });
 
 test('repair recognises nonempty rich content and never treats it as an empty description', () => {
@@ -117,7 +138,15 @@ test('missing Relates and fallback issue type are explicit in creation and repai
     { ncKey: 'QL-1', typeName: 'Story', description: 'Engineer reason: Review', linkAvailable: false });
   expect(proposal).toContain('Create Story in QL');
   expect(proposal).toContain('Enable the Relates link type, or the task will be created unlinked.');
-  expect(proposal).toContain('Set an ADF description: Engineer reason: Review');
+  expect(proposal).toContain('Description:\nEngineer reason: Review');
   const repair = repairLinkConfirmation('QL-3', 'QL-2', { ncKey: 'QL-1', description: 'Details', linkAvailable: false });
-  expect(repair).toBe('Verify QL-3. Set its ADF description only if empty: Details. Check Relates links to CAPA QL-2 and NC QL-1; add each link only if missing. Record description and both link completions. Enable the Relates link type; missing links cannot be repaired until it is available.');
+  expect(repair.split('\n')).toEqual([
+    'Verify QL-3. Set its description only if empty.', 'Description:', 'Details',
+    'Check the Relates link to CAPA QL-2; add it only if missing.',
+    'Check the Relates link to NC QL-1; add it only if missing.',
+    'Enable the Relates link type; missing links cannot be repaired until it is available.',
+    'Check the existing QualityLoop marker; leave it unchanged.',
+    'Record description and both link completions.', 'Assignee: unchanged.',
+    'If the description is rejected, keep the recorded task key and use Verify link later to retry.',
+  ]);
 });

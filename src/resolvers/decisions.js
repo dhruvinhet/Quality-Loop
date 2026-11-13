@@ -5,9 +5,19 @@ import { matchCaptures } from '../lib/match';
 import { issueCapture } from './evidence';
 import { selectSampleIssueType } from '../lib/sampleScenario';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
-import { FOLLOWUP_PROPERTY, followupMarker, followupDescription, descriptionPreview, hasDescription, hasCapaLink, isRecoveryTask, recoveryConfirmation, recoveryJql, recoveryMarkerKind, repairLinkConfirmation } from '../lib/followup';
+import { FOLLOWUP_PROPERTY, followupMarker, followupDescription, jiraSiteOrigin, descriptionPreview, hasDescription, hasCapaLink, isRecoveryTask, recoveryConfirmation, recoveryJql, recoveryMarkerKind, repairLinkConfirmation } from '../lib/followup';
 
 const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+async function getSiteUrl() {
+  // Native resolver context has no documented siteUrl. Issue self may use the API gateway.
+  try {
+    const response = await api.asUser().requestJira(route`/rest/api/3/serverInfo`, { headers });
+    if (!response.ok) return null;
+    return jiraSiteOrigin((await response.json()).baseUrl);
+  } catch {
+    return null; // A missing site URL must not prevent a plain-text NC description.
+  }
+}
 async function getIssue(id) {
   const response = await api.asUser().requestJira(
     route`/rest/api/3/issue/${id}?fields=summary,project,status,assignee,created&properties=qualityloop`, { headers });
@@ -246,7 +256,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
     if (!project?.id || !project.key) return { error: 'Recorded. The CAPA project could not be read.' };
     if (mode === 'repair') {
       if (!decision.taskClaimId || !decision.taskKey) return { message: 'Refresh history; this concern has no recorded follow-up task.' };
-      return { capa, nc, decision, project, decisionId: payload.decisionId };
+      return { capa, nc, decision, project, siteUrl: await getSiteUrl(), decisionId: payload.decisionId };
     }
     if (mode === 'recovery') {
       if (!decision.taskClaimId || decision.taskKey) return { message: 'Refresh history; this concern no longer has an unconfirmed follow-up.' };
@@ -260,8 +270,9 @@ export function registerDecisionResolvers({ define, findMatches }) {
     const metadata = await getStandardType(project.id);
     if (!metadata || metadata.error) return metadata;
     if (!metadata.type) return { error: 'No non-subtask issue type is available. No follow-up was created.' };
-    const plan = { capa, nc, decision, project, type: metadata.type, linkType: await getRelatesType(),
-      description: followupDescription(decision, nc, capa), decisionId: payload.decisionId };
+    const siteUrl = await getSiteUrl();
+    const plan = { capa, nc, decision, project, siteUrl, type: metadata.type, linkType: await getRelatesType(),
+      description: followupDescription(decision, nc, capa, siteUrl), decisionId: payload.decisionId };
     return { ...plan, confirmation: confirmationFor(plan) };
   }
   define('prepareConcernTask', ['capaId', 'decisionId'], async (issueId, payload, context) => {
@@ -362,7 +373,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
       return { error: 'This task has a different QualityLoop marker. Check Jira manually; no link was written.' };
     }
     const writeMarker = [1, 2].includes(result.decision.taskMarkerVersion) && !hasMarker;
-    const description = followupDescription(result.decision, result.nc, result.capa);
+    const description = followupDescription(result.decision, result.nc, result.capa, result.siteUrl);
     const linkType = await getRelatesType();
     const confirmation = repairLinkConfirmation(task.key, result.capa.key, { ncKey: result.nc.key,
       description: descriptionPreview(description), linkAvailable: !!linkType, writeMarker, legacy: !hasMarker && !writeMarker });
@@ -398,7 +409,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
       if (!recoveryMarkerKind(fresh.task, plan.decisionId, plan.decision)) return partial('the marker could not be verified');
     }
     if (repair && !hasDescription(fresh.task)) {
-      if (descriptionPreview(followupDescription(plan.decision, fresh.nc, fresh.capa)) !== descriptionPreview(plan.description)) {
+      if (descriptionPreview(followupDescription(plan.decision, fresh.nc, fresh.capa, plan.siteUrl)) !== descriptionPreview(plan.description)) {
         return { error: 'The proposed description changed. Open Verify link again.' };
       }
       try {
@@ -464,7 +475,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
           confirmationFor({ ...result, capa: freshCapa }) !== confirmation) {
         return { error: 'Recorded. The intended assignee changed. Open a new follow-up confirmation.' };
       }
-      if (confirmationFor({ ...result, nc: freshNc, description: followupDescription(decision, freshNc, freshCapa) }) !== confirmation) {
+      if (confirmationFor({ ...result, nc: freshNc, description: followupDescription(decision, freshNc, freshCapa, result.siteUrl) }) !== confirmation) {
         return { error: 'Recorded. The proposed description changed. Open a new follow-up confirmation.' };
       }
       if (!await canEdit(issueId)) return deniedEdit();
@@ -479,7 +490,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
         const currentCapa = await getIssue(payload.capaId), nc = await getIssue(issueId);
         if (!currentCapa || !nc) return null;
         if (currentCapa.fields?.assignee?.accountId !== freshCapa.fields?.assignee?.accountId ||
-            confirmationFor({ ...result, capa: currentCapa, nc, description: followupDescription(decision, nc, currentCapa) }) !== confirmation) {
+            confirmationFor({ ...result, capa: currentCapa, nc, description: followupDescription(decision, nc, currentCapa, result.siteUrl) }) !== confirmation) {
           throw new Error('Follow-up proposal changed.');
         }
         return api.asUser().requestJira(route`/rest/api/3/issue`, {

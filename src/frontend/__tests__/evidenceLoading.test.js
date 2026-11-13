@@ -198,18 +198,48 @@ test('a saved task with no link completion offers Verify link and requires a sep
   const render = () => { cursor = 0; return nodes(DecisionDetails(props)); };
   let tree = render();
   expect(invoke).not.toHaveBeenCalled();
-  const confirmation = 'Check that QL-3 is linked to the CAPA; add a Relates link only if it is missing. CAPA: QL-2. Then record link completion.';
+  const { repairLinkConfirmation } = require('../../lib/followup');
+  const confirmation = repairLinkConfirmation('QL-3', 'QL-2', { ncKey: 'QL-1', description: 'Decision: Effectiveness concern\nEngineer reason: Review.' });
   invoke.mockResolvedValueOnce({ confirmation });
   await tree.find((node) => node.type === 'Button' && node.props.children === 'Verify link').props.onClick();
   expect(invoke.mock.calls).toEqual([['prepareRepairLink', { capaId: '2', decisionId: 'decision' }]]);
   tree = render();
   expect(tree).toContain('Confirm link verification');
-  expect(tree).toContain(confirmation);
+  const body = tree.find((node) => node.type === 'ModalBody');
+  const displayedLines = nodes(body).filter((node) => node.type === 'Text').map((node) => node.props.children);
+  expect(displayedLines.join('\n')).toBe(confirmation);
+  expect(displayedLines.every((line) => !line.includes('\n') && !line.includes('ADF'))).toBe(true);
   expect(invoke).toHaveBeenCalledTimes(1);
   invoke.mockResolvedValueOnce({ message: 'The follow-up link is verified and recorded.' });
   await tree.find((node) => node.type === 'Button' && node.props.children === 'Confirm verification').props.onClick();
   expect(invoke).toHaveBeenLastCalledWith('repairConcernLink', { capaId: '2', decisionId: 'decision', confirmation });
   expect(props.onChanged).toHaveBeenCalledTimes(1);
+});
+
+test('follow-up dialog renders each canonical line separately and submits exactly those joined lines', async () => {
+  const { followupConfirmation } = require('../../lib/decisions');
+  const confirmation = followupConfirmation('QL', 'QL-2', { accountId: 'private-id', displayName: 'Engineer' }, {
+    ncKey: 'QL-1', typeName: 'Task', description: 'Decision: Effectiveness concern\nEngineer reason: Review.\nOpen the QualityLoop panel on QL-1 to see the full history.',
+  });
+  const states = [null, 0, false, '', '', { decisionId: 'decision', confirmation }];
+  let cursor = 0;
+  React.useState.mockImplementation((initial) => {
+    const index = cursor++;
+    if (!(index in states)) states[index] = initial;
+    return [states[index], (value) => { states[index] = value; }];
+  });
+  const onChanged = jest.fn();
+  const tree = nodes(DecisionDetails({ match: { id: '2' }, onChanged }));
+  const body = tree.find((node) => node.type === 'ModalBody');
+  const displayedLines = nodes(body).filter((node) => node.type === 'Text').map((node) => node.props.children);
+  expect(displayedLines.shift()).toBe('The concern is recorded. Confirm these Jira writes:');
+  expect(displayedLines.join('\n')).toBe(confirmation);
+  expect(displayedLines.every((line) => !line.includes('\n') && !line.includes('ADF'))).toBe(true);
+  expect(displayedLines.join('\n')).not.toMatch(/private-id|history\.\./);
+  invoke.mockResolvedValueOnce({ message: 'Recorded.' });
+  await tree.find((node) => node.type === 'Button' && node.props.children === 'Create follow-up').props.onClick();
+  expect(invoke).toHaveBeenCalledWith('createConcernTask', { capaId: '2', decisionId: 'decision', confirmation: displayedLines.join('\n') });
+  expect(onChanged).toHaveBeenCalledTimes(1);
 });
 
 test.each([true, false])('completed link=%s controls Verify link visibility', (taskLinked) => {

@@ -16,7 +16,7 @@ const context = { accountId: 'server-account', extension: { issue: { id: '10001'
 const nc = { schemaVersion: 2, recordType: 'NC', partOriginal: 'P-4471-A', failureMode: 'FM-01', detectedDate: '2026-10-31' };
 const capa = { ...nc, recordType: 'CAPA', closedDate: '2026-10-01', effectivenessEvidenceUrl: 'https://example.com/evidence' };
 const project = { id: '123', key: 'QL' };
-const issue = (id, capture = capa) => ({ id, key: `QL-${id}`, self: `https://example.atlassian.net/rest/api/3/issue/${id}`, properties: { qualityloop: capture },
+const issue = (id, capture = capa) => ({ id, key: `QL-${id}`, self: `https://api.atlassian.com/ex/jira/cloud-id/rest/api/3/issue/${id}`, properties: { qualityloop: capture },
   fields: { summary: `Summary ${id}`, project, status: { name: 'Done' } } });
 const response = (status, value) => ({ status, ok: status >= 200 && status < 300, json: jest.fn(async () => value) });
 const payload = { capaId: '20002', expectedVersion: 0, type: 'CONFIRM', reason: 'Review evidence', evidenceLinks: [] };
@@ -26,7 +26,7 @@ const concern = { issueId: '10001', capaId: '20002', type: 'CONCERN', reason: 'R
 const { followupConfirmation } = require('../../lib/decisions');
 const { followupDescription, descriptionPreview } = require('../../lib/followup');
 const confirmation = (assignee, options = {}) => followupConfirmation('QL', 'QL-20002', assignee, { ncKey: 'QL-10001', typeName: 'Task',
-  description: descriptionPreview(followupDescription(concern, issue('10001', nc), issue('20002'))), ...options });
+  description: descriptionPreview(followupDescription(concern, issue('10001', nc), issue('20002'), 'https://example.atlassian.net')), ...options });
 const followup = { capaId: '20002', decisionId, confirmation: confirmation() };
 const markerToken = 'a0b1c2d3e4f56789a0b1c2d3e4f56789';
 const opaqueMarker = { schemaVersion: 2, token: markerToken };
@@ -48,6 +48,7 @@ beforeEach(() => {
   createdProperties = {};
   createdFields = {}; createdLinks = [];
   requestJira.mockImplementation(async (path, options) => {
+    if (path === '/rest/api/3/serverInfo') return response(200, { baseUrl: 'https://example.atlassian.net' });
     if (path.includes('mypermissions')) return response(200, { permissions: {
       EDIT_ISSUES: { havePermission: edit }, CREATE_ISSUES: { havePermission: create } } });
     if (path === '/rest/api/3/issue/10001/properties/qualityloop') return response(200, { value: current });
@@ -231,13 +232,53 @@ test('confirmed follow-up creates a project-specific Task and relates-to link as
   expect(await handler.createConcernTask({ context, payload: followup })).toHaveProperty('message', 'Recorded. Created QL-30003 and linked it to QL-20002 and QL-10001; unassigned.');
   const post = requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issue');
   expect(JSON.parse(post[1].body)).toEqual({ fields: { project: { id: '123' }, issuetype: { id: '987' }, summary: 'Effectiveness re-review: QL-20002', assignee: null,
-    description: followupDescription(concern, issue('10001', nc), issue('20002')) },
+    description: followupDescription(concern, issue('10001', nc), issue('20002'), 'https://example.atlassian.net') },
     properties: [{ key: 'qualityloop-followup', value: opaqueMarker }] });
   expect(store.saveTaskMetadata).toHaveBeenCalledWith(decisionId, expect.objectContaining({ taskKey: 'QL-30003', reason: concern.reason }));
   const link = requestJira.mock.calls.find(([path]) => path === '/rest/api/3/issueLink');
   expect(JSON.parse(link[1].body)).toEqual({ type: { id: 'relates-id' }, outwardIssue: { id: '30003' }, inwardIssue: { id: '20002' } });
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issueLink')
     .map(([, options]) => JSON.parse(options.body).inwardIssue.id)).toEqual(['20002', '10001']);
+});
+
+test.each([null, 'https://api.atlassian.com', 'http://example.atlassian.net', 'denied', 'offline'])(
+  'unavailable or invalid serverInfo baseUrl (%s) creates a plain-text NC reference', async (baseUrl) => {
+    const original = requestJira.getMockImplementation();
+    requestJira.mockImplementation(async (path, options) => {
+      if (path === '/rest/api/3/serverInfo') {
+        if (baseUrl === 'offline') throw new Error('Unavailable');
+        return response(baseUrl === 'denied' ? 403 : 200, { baseUrl });
+      }
+      return original(path, options);
+    });
+    const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
+    expect(proposal.confirmation).toContain('NC: QL-10001: Summary 10001\n');
+    const result = await handler.createConcernTask({ context, payload: { ...followup, confirmation: proposal.confirmation } });
+    expect(result.message).toContain('Created QL-30003');
+    expect(createdFields.description.content[1].content).toEqual([
+      { type: 'text', text: 'NC: ' }, { type: 'text', text: 'QL-10001: Summary 10001' },
+    ]);
+    expect(JSON.stringify(createdFields.description)).not.toContain('api.atlassian.com');
+    expect(api.asUser).toHaveBeenCalledTimes(requestJira.mock.calls.length);
+  });
+
+test('site browse URL comes from serverInfo, ignoring gateway self and unverified context fields', async () => {
+  const suppliedContext = { ...context, siteUrl: 'https://other.example', extension: { ...context.extension, location: 'https://other.example/browse/QL-10001' } };
+  await handler.createConcernTask({ context: suppliedContext, payload: followup });
+  expect(createdFields.description.content[1].content[1].marks).toEqual([
+    { type: 'link', attrs: { href: 'https://example.atlassian.net/browse/QL-10001' } },
+  ]);
+  expect(JSON.stringify(createdFields.description)).not.toMatch(/api\.atlassian\.com|other\.example/);
+});
+
+test('a changed site URL invalidates the displayed confirmation before claiming or creating', async () => {
+  const proposal = await handler.prepareConcernTask({ context, payload: { capaId: '20002', decisionId } });
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation((path, options) => path === '/rest/api/3/serverInfo'
+    ? response(200, { baseUrl: 'https://renamed.atlassian.net' }) : original(path, options));
+  expect(await handler.createConcernTask({ context, payload: { ...followup, confirmation: proposal.confirmation } })).toHaveProperty('error');
+  expect(store.claimTask).not.toHaveBeenCalled();
+  expect(requestJira.mock.calls.some(([path]) => path === '/rest/api/3/issue')).toBe(false);
 });
 test('task creation or linking errors preserve the concern and expose the separate error', async () => {
   createStatus = 400;
@@ -588,7 +629,7 @@ test('recovery rejects a marker changed after the proposal and never creates a r
 function repairScenario(links = []) {
   const task = markedRecoveryTask();
   task.fields.issuelinks = [...links, { type: { name: 'Relates' }, inwardIssue: { id: '10001', key: 'QL-10001' } }];
-  task.fields.description = followupDescription(concern, issue('10001', nc), issue('20002'));
+  task.fields.description = followupDescription(concern, issue('10001', nc), issue('20002'), 'https://example.atlassian.net');
   store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'claim', taskClaimedAt: claimedAt, taskMarkerVersion: 1, taskKey: task.key });
   const original = requestJira.getMockImplementation();
   requestJira.mockImplementation(async (path, options) => {
@@ -602,6 +643,23 @@ function repairScenario(links = []) {
   });
   return task;
 }
+
+test.each([true, false])('Verify repairs an empty description with site link available=%s', async (available) => {
+  const task = repairScenario();
+  task.fields.description = null;
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation((path, options) => path === '/rest/api/3/serverInfo'
+    ? response(available ? 200 : 404, { baseUrl: 'https://example.atlassian.net' }) : original(path, options));
+  const payload = { capaId: '20002', decisionId };
+  const proposal = await handler.prepareRepairLink({ context, payload });
+  expect(proposal.confirmation.includes('https://example.atlassian.net/browse/QL-10001')).toBe(available);
+  const result = await handler.repairConcernLink({ context, payload: { ...payload, confirmation: proposal.confirmation } });
+  expect(result.message).toMatch(/verified/);
+  const reference = task.fields.description.content[1].content[1];
+  expect(reference.text).toBe('QL-10001: Summary 10001');
+  expect(reference.marks).toEqual(available ? [{ type: 'link', attrs: { href: 'https://example.atlassian.net/browse/QL-10001' } }] : undefined);
+  expect(JSON.stringify(task.fields.description)).not.toContain('api.atlassian.com');
+});
 const repairPayload = { capaId: '20002', decisionId };
 
 test.each([true, false])('legacy task verification with existing link=%s checks before creating and stays idempotent', async (existing) => {
@@ -609,7 +667,7 @@ test.each([true, false])('legacy task verification with existing link=%s checks 
   delete task.properties['qualityloop-followup'];
   store.readDecision.mockResolvedValue({ ...concern, taskClaimId: 'legacy-claim', taskClaimedAt: claimedAt, taskKey: task.key });
   const proposal = await handler.prepareRepairLink({ context, payload: repairPayload });
-  expect(proposal.confirmation).toContain('Check Relates links to CAPA QL-20002 and NC QL-10001; add each link only if missing.');
+  expect(proposal.confirmation).toContain('Check the Relates link to CAPA QL-20002; add it only if missing.\nCheck the Relates link to NC QL-10001; add it only if missing.');
   expect(proposal.confirmation).toContain('This task has no QualityLoop marker; confirm only if you know it is the follow-up task.');
   expect(requestJira.mock.calls.some(([, options]) => ['POST', 'PUT'].includes(options?.method))).toBe(false);
   const confirmed = { ...repairPayload, confirmation: proposal.confirmation };
@@ -622,7 +680,7 @@ test.each([true, false])('legacy task verification with existing link=%s checks 
 test.each(['inwardIssue', 'outwardIssue'])('repair of an existing %s Relates link writes no link and records completion', async (direction) => {
   repairScenario([{ type: { name: 'Relates' }, [direction]: { id: '20002' } }]);
   const proposal = await handler.prepareRepairLink({ context, payload: repairPayload });
-  expect(proposal.confirmation).toContain('Check Relates links to CAPA QL-20002 and NC QL-10001; add each link only if missing.');
+  expect(proposal.confirmation).toContain('Check the Relates link to CAPA QL-20002; add it only if missing.\nCheck the Relates link to NC QL-10001; add it only if missing.');
   expect(store.saveTaskLinked).not.toHaveBeenCalled();
   expect(await handler.repairConcernLink({ context, payload: { ...repairPayload, confirmation: proposal.confirmation } }))
     .toHaveProperty('message', expect.stringContaining('verified and recorded'));
@@ -864,7 +922,7 @@ test('a description-only rejection retries under the same claim, saves the key, 
   expect(JSON.parse(creates[1][1].body).fields).not.toHaveProperty('description');
   store.readDecision.mockResolvedValue(store.saveTaskMetadata.mock.calls[0][1]);
   const repair = await handler.prepareRepairLink({ context, payload: repairPayload });
-  expect(repair.confirmation).toContain('Set its ADF description only if empty');
+  expect(repair.confirmation).toContain('Set its description only if empty');
   await handler.repairConcernLink({ context, payload: { ...repairPayload, confirmation: repair.confirmation } });
   expect(createdFields.description.type).toBe('doc');
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issueLink')).toHaveLength(2);

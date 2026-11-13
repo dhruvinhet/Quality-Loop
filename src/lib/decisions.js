@@ -71,9 +71,15 @@ export function followupConfirmation(project, capaKey, assignee, { ncKey, typeNa
   const ownership = assignee?.accountId
     ? `Intended assignee: ${assignee.displayName?.trim() || "the CAPA's current assignee"}. If Jira rejects this assignee, the task is created unassigned.`
     : 'Assignee: none (the CAPA has no assignee).';
-  return `Create ${typeName} in ${project}: 'Effectiveness re-review: ${capaKey}'. Set an ADF description: ${description}.`
-    + (linkAvailable ? ` Add Relates links to CAPA ${capaKey} and NC ${ncKey}.`
-      : ' Enable the Relates link type, or the task will be created unlinked. Use Verify link later to add both links.')
-    + ' Add a hidden QualityLoop marker to the new task so it can be identified later. Record the task key and description/link completion in QualityLoop.'
-    + ` A description-only validation rejection may create the task without a description; use Verify link later to add it. ${ownership}`;
+  return [
+    `Create ${typeName} in ${project}: 'Effectiveness re-review: ${capaKey}'.`,
+    'Description:', ...String(description ?? '').split(/\r?\n/).filter(Boolean),
+    linkAvailable ? `Add a Relates link to CAPA ${capaKey}.` : `CAPA ${capaKey}: no link will be added while Relates is unavailable.`,
+    linkAvailable ? `Add a Relates link to NC ${ncKey}.` : `NC ${ncKey}: no link will be added while Relates is unavailable.`,
+    ...(!linkAvailable ? ['Enable the Relates link type, or the task will be created unlinked. Use Verify link later to add both links.'] : []),
+    'Add a hidden QualityLoop marker to the new task so it can be identified later.',
+    'Record the task key and description/link completion in QualityLoop.',
+    ownership,
+    'A description-only validation rejection may create the task without a description; use Verify link later to add it.',
+  ].join('\n');
 }

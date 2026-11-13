@@ -165,7 +165,9 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
       {type && <DecisionModal key={type} type={type} onClose={() => setType(null)} onSubmit={record} busy={busy} error={modalError} />}
       {followup && <Modal onClose={() => { if (!busy) setFollowup(null); }}>
         <ModalHeader><ModalTitle>Confirm follow-up task</ModalTitle></ModalHeader>
-        <ModalBody><Stack space="space.100"><Text>The concern is recorded. Confirm these Jira writes:</Text><Text>{followup.confirmation}</Text></Stack></ModalBody>
+        <ModalBody><Stack space="space.100"><Text>The concern is recorded. Confirm these Jira writes:</Text>
+          {followup.confirmation.split('\n').map((line, index) => <Text key={index}>{line}</Text>)}
+        </Stack></ModalBody>
         <ModalFooter><Button isDisabled={busy} onClick={() => setFollowup(null)}>Keep decision only</Button>
           <Button appearance="primary" isDisabled={busy} onClick={createTask}>{busy ? 'Creating…' : 'Create follow-up'}</Button></ModalFooter>
       </Modal>}
@@ -179,7 +181,9 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
       </Modal>}
       {linkRepair && <Modal onClose={() => { if (!busy) setLinkRepair(null); }}>
         <ModalHeader><ModalTitle>Confirm link verification</ModalTitle></ModalHeader>
-        <ModalBody><Text>{linkRepair.confirmation}</Text></ModalBody>
+        <ModalBody><Stack space="space.100">
+          {linkRepair.confirmation.split('\n').map((line, index) => <Text key={index}>{line}</Text>)}
+        </Stack></ModalBody>
         <ModalFooter><Button isDisabled={busy} onClick={() => setLinkRepair(null)}>Cancel</Button>
           <Button appearance="primary" isDisabled={busy} onClick={repairLink}>Confirm verification</Button></ModalFooter>
       </Modal>}

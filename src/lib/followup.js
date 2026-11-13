@@ -4,12 +4,20 @@ import { validEvidenceUrl } from './urls';
 
 export const followupSummary = (capaKey) => `Effectiveness re-review: ${capaKey}`;
 export const FOLLOWUP_PROPERTY = 'qualityloop-followup';
-export function followupDescription(decision, nc, capa) {
+// Only pass the baseUrl obtained from Jira serverInfo, never an issue's self URL.
+export function jiraSiteOrigin(baseUrl) {
+  if (!validEvidenceUrl(baseUrl)) return null;
+  const url = new URL(baseUrl);
+  const hostname = url.hostname.replace(/\.+$/, '');
+  if (hostname === 'api.atlassian.com' || hostname.endsWith('.api.atlassian.com')) return null;
+  return url.origin;
+}
+export function followupDescription(decision, nc, capa, siteUrl) {
   const text = (value, href) => ({ type: 'text', text: String(value),
     ...(href ? { marks: [{ type: 'link', attrs: { href } }] } : {}) });
   const paragraph = (...content) => ({ type: 'paragraph', content });
-  const ncUrl = new URL(`/browse/${encodeURIComponent(nc.key)}`, nc.self).href;
-  if (!validEvidenceUrl(ncUrl)) throw new Error('NC URL is unavailable.');
+  const origin = jiraSiteOrigin(siteUrl);
+  const ncUrl = origin ? new URL(`/browse/${encodeURIComponent(nc.key)}`, origin).href : null;
   return { type: 'doc', version: 1, content: [
     paragraph(text(`Decision: ${TYPE_LABELS[decision.type] ?? decision.type}`)),
     paragraph(text('NC: '), text(`${nc.key}: ${nc.fields?.summary ?? ''}`, ncUrl)),
@@ -20,7 +28,10 @@ export function followupDescription(decision, nc, capa) {
     paragraph(text(`Open the QualityLoop panel on ${nc.key} to see the full history.`)),
   ] };
 }
-export const descriptionPreview = (description) => description.content.map((p) => p.content.map((node) => node.text).join('')).join('\n');
+export const descriptionPreview = (description) => description.content.map((p) => p.content.map((node) => {
+  const href = node.marks?.find((mark) => mark.type === 'link')?.attrs?.href;
+  return node.text + (href && href !== node.text ? ` (${href})` : '');
+}).join('')).join('\n');
 export function hasDescription(task) {
   const value = task?.fields?.description;
   if (value == null) return false;
@@ -62,10 +73,18 @@ export function hasCapaLink(task, capa) {
 }
 
 export function repairLinkConfirmation(taskKey, capaKey, { ncKey, description, linkAvailable = true, writeMarker = false, legacy = false } = {}) {
-  return `Verify ${taskKey}. Set its ADF description only if empty: ${description}. Check Relates links to CAPA ${capaKey} and NC ${ncKey}; add each link only if missing. Record description and both link completions.`
-    + (!linkAvailable ? ' Enable the Relates link type; missing links cannot be repaired until it is available.' : '')
-    + (writeMarker ? ` Set the ${FOLLOWUP_PROPERTY} marker property on ${taskKey} for this decision.` : '')
-    + (legacy ? ` ${legacyMarkerWarning}` : '');
+  return [
+    `Verify ${taskKey}. Set its description only if empty.`,
+    'Description:', ...String(description ?? '').split(/\r?\n/).filter(Boolean),
+    `Check the Relates link to CAPA ${capaKey}; add it only if missing.`,
+    `Check the Relates link to NC ${ncKey}; add it only if missing.`,
+    ...(!linkAvailable ? ['Enable the Relates link type; missing links cannot be repaired until it is available.'] : []),
+    writeMarker ? `Set the ${FOLLOWUP_PROPERTY} marker property on ${taskKey} for this decision.` : 'Check the existing QualityLoop marker; leave it unchanged.',
+    'Record description and both link completions.',
+    'Assignee: unchanged.',
+    'If the description is rejected, keep the recorded task key and use Verify link later to retry.',
+    ...(legacy ? [legacyMarkerWarning] : []),
+  ].join('\n');
 }
 
 export function recoveryJql(projectId, capaKey, claimedAt) {
