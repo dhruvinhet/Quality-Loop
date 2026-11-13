@@ -1,4 +1,26 @@
-import { validEvidenceUrl } from '../urls';
+import { evidenceUrlError, validEvidenceUrl } from '../urls';
+
+test.each([
+  ['https://user:pass@example.com/x', 'Remove the user name and password from the link.'],
+  ['https://user@example.com/x', 'Remove the user name and password from the link.'],
+  [' https://example.com/x', 'Remove spaces before or after the link.'],
+  ['https://example.com/x ', 'Remove spaces before or after the link.'],
+  ['http://example.com/x', 'Use an https:// link.'],
+  ['javascript:alert(1)', 'Use an https:// link.'],
+  ['ftp://example.com/x', 'Use an https:// link.'],
+  ['https://', 'Enter a full https:// link.'],
+  ['https:///report.pdf', 'Enter a full https:// link.'],
+  ['not a URL', 'Enter a full https:// link.'],
+  ['https://example.com/a\nb', 'Enter a full https:// link.'],
+])('shared URL reason for %j is actionable: %s', (url, reason) => {
+  expect(evidenceUrlError(url)).toBe(reason);
+  expect(validEvidenceUrl(url)).toBe(false);
+});
+
+test('reason is null for a valid link; legacy HTTP remains display-only', () => {
+  expect(evidenceUrlError('https://example.com/x')).toBeNull();
+  expect(evidenceUrlError('http://example.com/x', { allowHttp: true })).toBeNull();
+});
 
 test.each([
   'https://example.com/evidence', 'HTTPS://example.com/path?x=1#page=2',

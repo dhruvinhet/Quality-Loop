@@ -1,15 +1,25 @@
 // New evidence must be HTTPS. allowHttp is only for identifying legacy HTTP
 // values for warning/text display; callers must not use it to validate a write.
-export function validEvidenceUrl(value, { allowHttp = false } = {}) {
-  if (typeof value !== 'string' || value.length > 2000 || value.trim() !== value ||
-      /[\s\u0000-\u001f\u007f-\u009f\\]/.test(value)) return false;
+export function evidenceUrlError(value, { allowHttp = false } = {}) {
+  const invalid = 'Enter a full https:// link.';
+  if (typeof value !== 'string') return invalid;
+  const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value.trim());
+  if (authority?.[1].includes('@')) return 'Remove the user name and password from the link.';
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return invalid;
+  if (value.trim() !== value) return 'Remove spaces before or after the link.';
+  const scheme = /^([a-z][a-z\d+.-]*):/i.exec(value)?.[1].toLowerCase();
+  if (scheme && scheme !== 'https' && !(allowHttp && scheme === 'http')) return 'Use an https:// link.';
+  if (value.length > 2000 || /[\s\\]/.test(value)) return invalid;
   // Require an explicit, nonempty authority. URL() otherwise repairs missing
   // slashes/hosts and backslashes, and discards some control characters.
-  const authority = /^https?:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(value);
-  if (!authority || authority[1].includes('@')) return false;
+  if (!/^https?:\/\/([^/?#]+)(?:[/?#]|$)/i.test(value)) return invalid;
   try {
     const url = new URL(value);
-    return (url.protocol === 'https:' || (allowHttp && url.protocol === 'http:')) &&
-      !!url.hostname && !url.username && !url.password;
-  } catch { return false; }
+    if (url.username || url.password) return 'Remove the user name and password from the link.';
+    return (url.protocol === 'https:' || (allowHttp && url.protocol === 'http:')) && url.hostname ? null : invalid;
+  } catch { return invalid; }
+}
+
+export function validEvidenceUrl(value, options) {
+  return evidenceUrlError(value, options) === null;
 }

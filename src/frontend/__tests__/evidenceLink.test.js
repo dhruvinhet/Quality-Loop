@@ -47,6 +47,7 @@ describe.each(Object.entries(surfaces))('%s evidence rendering', (_, render) => 
     const url = 'http://example.com/legacy-report';
     const tree = nodes(render(url));
     expect(tree).toContain('Not a secure link (http)');
+    expect(tree.find((node) => node.type === 'SectionMessage' && nodes(node).includes('Not a secure link (http)')).props.appearance).toBe('warning');
     expect(tree).toContain(url);
     expect(tree.filter((node) => node.type === 'Link' && node.props.openNewTab)).toEqual([]);
   });
@@ -68,18 +69,74 @@ test.each(['', null, undefined])('absent capture evidence %j still has the absen
   }
 });
 
-test.each(['http://example.com/report', ' https://example.com/report', 'https://example.com/report '])(
-  'decision modal rejects %j without silently trimming it', (url) => {
-    React.useState.mockReturnValueOnce(['CONFIRM', jest.fn()]);
-    const modal = nodes(DecisionDetails({ match, readOnly: false }))
-      .find((node) => typeof node.type === 'function' && node.props.type === 'CONFIRM');
-    const onSubmit = jest.fn();
-    const setValidation = jest.fn();
-    React.useState.mockReturnValueOnce(['Reviewed', jest.fn()]).mockReturnValueOnce([url, jest.fn()])
-      .mockReturnValueOnce([null, jest.fn()]).mockReturnValueOnce(['', setValidation]);
-    const tree = nodes(modal.type({ ...modal.props, onSubmit }));
-    tree.find((node) => node.type === 'Button' && node.props.children === 'Record decision').props.onClick();
-    expect(setValidation).toHaveBeenCalledWith('Use an https:// link.');
-    expect(onSubmit).not.toHaveBeenCalled();
-  },
-);
+const mountModal = (props = {}) => {
+  React.useState.mockReturnValueOnce(['CONFIRM', jest.fn()]);
+  const modal = nodes(DecisionDetails({ match, readOnly: false }))
+    .find((node) => typeof node.type === 'function' && node.props.type === 'CONFIRM');
+  const state = [], refs = [];
+  let stateIndex = 0, refIndex = 0;
+  React.useState.mockImplementation((initial) => {
+    const index = stateIndex++;
+    if (!(index in state)) state[index] = initial;
+    return [state[index], (value) => { state[index] = value; }];
+  });
+  React.useRef.mockImplementation((initial) => {
+    const index = refIndex++;
+    if (!(index in refs)) refs[index] = { current: initial };
+    return refs[index];
+  });
+  return () => { stateIndex = 0; refIndex = 0; return nodes(modal.type({ ...modal.props, ...props })); };
+};
+const typeInto = (tree, id, value) => tree.find((node) => node.type === 'TextArea' && node.props.id === id)
+  .props.onChange({ target: { value } });
+const submitModal = (tree) => tree.find((node) => node.type === 'Button' && node.props.children === 'Record decision').props.onClick();
+
+test.each([
+  ['http://example.com/report', 'Use an https:// link.'],
+  ['https://user:pass@example.com/x', 'Remove the user name and password from the link.'],
+  [' https://example.com/report', 'Remove spaces before or after the link.'],
+  ['https://example.com/report ', 'Remove spaces before or after the link.'],
+  ['javascript:alert(1)', 'Use an https:// link.'],
+  ['https:///report', 'Enter a full https:// link.'],
+])('decision modal reports %j in an error SectionMessage without repairing it', (url, reason) => {
+  const onSubmit = jest.fn();
+  const render = mountModal({ onSubmit });
+  const tree = render();
+  typeInto(tree, 'decision-reason', 'Reviewed');
+  typeInto(tree, 'decision-links', url);
+  submitModal(tree);
+  const banner = render().find((node) => node.type === 'SectionMessage');
+  expect(banner.props.appearance).toBe('error');
+  expect(nodes(banner)).toContain(reason);
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+test('decision textareas are uncontrolled and submit the latest fast typing and pasted text', () => {
+  const onSubmit = jest.fn();
+  const render = mountModal({ onSubmit });
+  const tree = render();
+  for (const textarea of tree.filter((node) => node.type === 'TextArea')) {
+    expect(textarea.props).not.toHaveProperty('value');
+    expect(textarea.props.defaultValue).toBe('');
+  }
+  const reason = 'Different weld cell';
+  for (let i = 1; i <= reason.length; i++) typeInto(tree, 'decision-reason', reason.slice(0, i));
+  const url = 'https://example.com/report';
+  for (let i = 1; i <= url.length; i++) typeInto(tree, 'decision-links', url.slice(0, i));
+  const pasted = `${url}\r\nhttps://example.com/second`;
+  typeInto(tree, 'decision-links', pasted);
+  // No render awaited between input events and the click.
+  submitModal(tree);
+  expect(onSubmit).toHaveBeenCalledWith({ type: 'CONFIRM', reason,
+    evidenceLinks: [url, 'https://example.com/second'] });
+  typeInto(tree, 'decision-reason', 'Pasted complete explanation');
+  submitModal(render());
+  expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'Pasted complete explanation' }));
+});
+
+test('decision server errors use error styling', () => {
+  const render = mountModal({ error: 'The decision could not be recorded.' });
+  const banner = render().find((node) => node.type === 'SectionMessage');
+  expect(banner.props.appearance).toBe('error');
+  expect(nodes(banner)).toContain('The decision could not be recorded.');
+});

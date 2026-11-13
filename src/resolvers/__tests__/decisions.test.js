@@ -91,10 +91,18 @@ test('decision uses context identity and fresh strong matching before committing
   expect(requestJira).toHaveBeenCalledTimes(3);
 });
 
-test.each(['http://example.com/report', 'https://user:pass@example.com/x'])(
-  'direct recordDecision rejects unsafe evidence %j without committing it', async (url) => {
+test.each([
+  ['http://example.com/report', 'Use an https:// link.'],
+  ['https://user:pass@example.com/x', 'Remove the user name and password from the link.'],
+  [' https://example.com/report', 'Remove spaces before or after the link.'],
+  ['https://example.com/report ', 'Remove spaces before or after the link.'],
+  ['javascript:alert(1)', 'Use an https:// link.'],
+  ['https:///report', 'Enter a full https:// link.'],
+  ['https://example.com/a\nb', 'Enter a full https:// link.'],
+])(
+  'direct recordDecision returns the specific reason for %j without committing it', async (url, reason) => {
     expect(await handler.recordDecision({ context, payload: { ...payload, evidenceLinks: [url] } }))
-      .toEqual({ fieldErrors: { evidenceLinks: 'Use an https:// link.' } });
+      .toEqual({ fieldErrors: { evidenceLinks: reason } });
     expect(store.commitDecision).not.toHaveBeenCalled();
   },
 );

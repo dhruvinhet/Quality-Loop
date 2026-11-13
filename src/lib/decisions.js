@@ -1,4 +1,4 @@
-import { validEvidenceUrl } from './urls';
+import { evidenceUrlError } from './urls';
 
 export const DECISION_TYPES = ['CONFIRM', 'NOT_RECURRENCE', 'CONCERN', 'SUPERSEDE'];
 export const REASON_CATEGORIES = ['DIFFERENT_MECHANISM', 'DIFFERENT_CAUSE', 'DATA_ERROR', 'OTHER'];
@@ -35,8 +35,9 @@ export function validateDecision(payload) {
   } else if (payload.reasonCategory != null) errors.reasonCategory = 'A category applies only to Not a recurrence.';
   if (!Array.isArray(payload.evidenceLinks) || payload.evidenceLinks.length > 5) {
     errors.evidenceLinks = 'Enter at most 5 HTTPS URLs (2000 characters each).';
-  } else if (payload.evidenceLinks.some((url) => !validEvidenceUrl(url))) {
-    errors.evidenceLinks = 'Use an https:// link.';
+  } else {
+    const reason = payload.evidenceLinks.map((url) => evidenceUrlError(url)).find(Boolean);
+    if (reason) errors.evidenceLinks = reason;
   }
   return errors;
 }

@@ -30,12 +30,16 @@ test('CAPA detected date and evidence are optional, but supplied values must be 
 });
 
 test.each([
-  'https://user:pass@example.com/x', 'http://example.com/evidence', 'javascript:alert(1)',
-  ' https://example.com/evidence', 'https://example.com/evidence ',
-  'https://', 'https:///report.pdf', 'https://example.com/a\nb', ' ',
-])('capture rejects unsafe/new evidence without rewriting it: %j', (effectivenessEvidenceUrl) => {
+  ['https://user:pass@example.com/x', 'Remove the user name and password from the link.'],
+  ['http://example.com/evidence', 'Use an https:// link.'], ['javascript:alert(1)', 'Use an https:// link.'],
+  [' https://example.com/evidence', 'Remove spaces before or after the link.'],
+  ['https://example.com/evidence ', 'Remove spaces before or after the link.'],
+  ['https://', 'Enter a full https:// link.'], ['https:///report.pdf', 'Enter a full https:// link.'],
+  ['https://example.com/a\nb', 'Enter a full https:// link.'], [' ', 'Remove spaces before or after the link.'],
+  [42, 'Enter a full https:// link.'],
+])('capture rejects unsafe/new evidence without rewriting it: %j', (effectivenessEvidenceUrl, reason) => {
   const input = Object.freeze({ ...nc, recordType: 'CAPA', closedDate: '2026-10-01', effectivenessEvidenceUrl });
-  expect(validateCapture(input)).toEqual({ effectivenessEvidenceUrl: 'Use an https:// link.' });
+  expect(validateCapture(input)).toEqual({ effectivenessEvidenceUrl: reason });
   expect(input.effectivenessEvidenceUrl).toBe(effectivenessEvidenceUrl);
 });
 

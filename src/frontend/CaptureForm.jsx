@@ -18,8 +18,11 @@ const asPayload = (data) => ({
 export default function CaptureForm({ record, initialRecordType = '', onSaved }) {
   const [recordType, setRecordType] = useState(record?.recordType ?? initialRecordType);
   const [message, setMessage] = useState(null);
-  const [serverErrors, setServerErrors] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const { register, getFieldId, getValues, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+    // UI Kit 12.4 only accepts defaultValues and hardcodes blur/change modes.
+    // Register without validation; validate once in save to keep errors stable
+    // during edits and blur, equivalent to onSubmit/onSubmit validation modes.
     defaultValues: {
       recordType: RECORD_TYPES.find(({ value }) => value === (record?.recordType ?? initialRecordType)) ?? null,
       partNumber: record?.partOriginal ?? '',
@@ -33,22 +36,32 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
       actionsTaken: record?.actionsTaken ?? '',
     },
   });
-  const field = (name) => register(name, {
-    validate: () => validateCapture(asPayload(getValues()))[name] || true,
-  });
+  const field = (name) => {
+    const registered = register(name);
+    return { ...registered, onChange: (...args) => {
+      setMessage(null);
+      return registered.onChange(...args);
+    } };
+  };
+  const hasFieldErrors = Object.keys(errors).length > 0 || Object.keys(fieldErrors).length > 0;
   const error = (name) => {
-    const text = errors[name]?.message || serverErrors[name];
+    const text = errors[name]?.message || fieldErrors[name];
     return text ? <ErrorMessage>{text}</ErrorMessage> : null;
   };
   const recordTypeField = field('recordType');
 
   const save = async (data) => {
     setMessage(null);
-    setServerErrors({});
+    setFieldErrors({});
+    const validationErrors = validateCapture(asPayload(data));
+    if (Object.keys(validationErrors).length) {
+      setFieldErrors(validationErrors);
+      return;
+    }
     try {
       const result = await invoke('saveCapture', asPayload(data));
       if (result?.fieldErrors) {
-        setServerErrors(result.fieldErrors);
+        setFieldErrors(result.fieldErrors);
         setMessage({ appearance: 'error', text: 'Check the highlighted fields.' });
       } else if (!result?.record) {
         setMessage({ appearance: 'error', text: result?.error || 'Save was not completed. Check your issue access and try again.' });
@@ -64,7 +77,7 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
   };
 
   return (
-    <Form onSubmit={handleSubmit(save)}>
+    <Form onSubmit={handleSubmit(save, () => setMessage(null))}>
       <FormSection description="Save quality details on this issue. Fields marked * are required.">
         <Label labelFor={getFieldId('recordType')}>Record type *</Label>
         <Select {...recordTypeField} options={RECORD_TYPES} isDisabled={isSubmitting || !!record?.recordType}
@@ -72,7 +85,6 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
             recordTypeField.onChange(option);
             setRecordType(option?.value ?? '');
             setMessage(null);
-            setServerErrors({});
           }} />
         {error('recordType')}
 
@@ -111,12 +123,12 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
           <Label labelFor={getFieldId('effectivenessEvidenceUrl')}>Effectiveness evidence link</Label>
           <Textfield {...field('effectivenessEvidenceUrl')} defaultValue={getValues('effectivenessEvidenceUrl')} isDisabled={isSubmitting} maxLength={2000} />
           {!validEvidenceUrl(record?.effectivenessEvidenceUrl) && validEvidenceUrl(record?.effectivenessEvidenceUrl, { allowHttp: true }) &&
-            <Text>Not a secure link (http)</Text>}
-          <Text>Use an https:// link.</Text>
+            <SectionMessage appearance="warning"><Text>Not a secure link (http)</Text></SectionMessage>}
+          <Text>Optional. Must start with https://</Text>
           {error('effectivenessEvidenceUrl')}
         </>}
       </FormSection>
-      {message && <SectionMessage appearance={message.appearance}><Text>{message.text}</Text></SectionMessage>}
+      {message && !hasFieldErrors && <SectionMessage appearance={message.appearance}><Text>{message.text}</Text></SectionMessage>}
       {isSubmitting && <Text>Saving quality details. Please wait before making another change.</Text>}
       <FormFooter align="start">
         <LoadingButton type="submit" appearance="primary" isLoading={isSubmitting} isDisabled={isSubmitting}>{isSubmitting ? 'Saving quality details…' : 'Save'}</LoadingButton>

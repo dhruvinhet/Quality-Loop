@@ -1,16 +1,16 @@
 import React, { useRef, useState } from 'react';
-import { Button, Label, Link, Lozenge, Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle, ModalTransition, Select, Stack, Text, TextArea } from '@forge/react';
+import { Button, Label, Link, Lozenge, Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle, ModalTransition, SectionMessage, Select, Stack, Text, TextArea } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import { REASON_CATEGORIES, STATE_LABELS, TYPE_LABELS, validateDecision } from '../lib/decisions';
 import EvidenceLink from './EvidenceLink';
 
 function DecisionModal({ type, onClose, onSubmit, busy, error }) {
-  const [reason, setReason] = useState('');
-  const [links, setLinks] = useState('');
+  const reason = useRef('');
+  const links = useRef('');
   const [category, setCategory] = useState(null);
   const [validation, setValidation] = useState('');
   const submit = () => {
-    const payload = { type, reason, evidenceLinks: links.split(/\r?\n/).filter((s) => s !== ''),
+    const payload = { type, reason: reason.current, evidenceLinks: links.current.split(/\r?\n/).filter((s) => s !== ''),
       ...(type === 'NOT_RECURRENCE' ? { reasonCategory: category?.value } : {}) };
     const errors = validateDecision({ ...payload, capaId: '1', expectedVersion: 0 });
     if (Object.keys(errors).length) { setValidation(Object.values(errors).join(' ')); return; }
@@ -22,15 +22,15 @@ function DecisionModal({ type, onClose, onSubmit, busy, error }) {
       <Text>Each new decision replaces the current state and keeps all earlier decisions in history.</Text>
       {type === 'SUPERSEDE' && <Text>Correct the explanation and evidence for the current state. The state stays the same.</Text>}
       <Label labelFor="decision-reason">Reason (required, at most 1000 characters)</Label>
-      <TextArea id="decision-reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} isRequired isDisabled={busy} />
+      <TextArea id="decision-reason" defaultValue="" onChange={(event) => { reason.current = event.target.value; }} maxLength={1000} isRequired isDisabled={busy} />
       {type === 'NOT_RECURRENCE' && <>
         <Label labelFor="decision-category">Reason category (required)</Label>
         <Select inputId="decision-category" options={REASON_CATEGORIES.map((value) => ({ value,
           label: value.toLowerCase().replaceAll('_', ' ') }))} value={category} onChange={setCategory} isRequired isDisabled={busy} />
       </>}
       <Label labelFor="decision-links">Evidence links (optional, up to 5 HTTPS URLs; one per line)</Label>
-      <TextArea id="decision-links" value={links} onChange={(event) => setLinks(event.target.value)} isDisabled={busy} />
-      {(validation || error) && <Text>{validation || error}</Text>}
+      <TextArea id="decision-links" defaultValue="" onChange={(event) => { links.current = event.target.value; }} isDisabled={busy} />
+      {(validation || error) && <SectionMessage appearance="error"><Text>{validation || error}</Text></SectionMessage>}
     </Stack></ModalBody>
     <ModalFooter><Button isDisabled={busy} onClick={onClose}>Cancel</Button>
       <Button appearance="primary" isDisabled={busy} onClick={submit}>{busy ? 'Recording…' : 'Record decision'}</Button></ModalFooter>

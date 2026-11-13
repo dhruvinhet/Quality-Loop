@@ -24,11 +24,15 @@ test('permits up to five HTTPS evidence URLs and rejects malformed or credential
 });
 
 test.each([
-  'http://example.com/report', 'https://user:pass@example.com/x', 'javascript:alert(1)',
-  ' https://example.com', 'https://example.com ', 'https://', 'https:///report',
-  'https://example.com/a\nb', 'https://example.com/\u007fx',
-])('decision evidence requires HTTPS without repairing input: %j', (url) => {
-  expect(validateDecision({ ...payload, evidenceLinks: [url] })).toEqual({ evidenceLinks: 'Use an https:// link.' });
+  ['http://example.com/report', 'Use an https:// link.'],
+  ['https://user:pass@example.com/x', 'Remove the user name and password from the link.'],
+  ['javascript:alert(1)', 'Use an https:// link.'],
+  [' https://example.com', 'Remove spaces before or after the link.'],
+  ['https://example.com ', 'Remove spaces before or after the link.'],
+  ['https://', 'Enter a full https:// link.'], ['https:///report', 'Enter a full https:// link.'],
+  ['https://example.com/a\nb', 'Enter a full https:// link.'], ['https://example.com/\u007fx', 'Enter a full https:// link.'],
+])('decision evidence requires HTTPS without repairing input: %j', (url, reason) => {
+  expect(validateDecision({ ...payload, evidenceLinks: [url] })).toEqual({ evidenceLinks: reason });
 });
 test('validates IDs, expected versions and action type', () => {
   for (const capaId of ['x:2', '../123', 123, '']) expect(validateDecision({ ...payload, capaId })).toHaveProperty('capaId');
