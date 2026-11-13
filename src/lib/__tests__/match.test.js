@@ -26,6 +26,45 @@ test('spacing and case only differences are strong and preserve original', () =>
   const original = 'BRACKET   4471-A';
   expect(matchCaptures(current, [capa({ partNumber: original })]).strong[0].partOriginal).toBe(original);
 });
+
+test.each(['SM-6604 -A', 'SM-6604- A', ' SM-6604 - A ', 'SM-6604-A'])(
+  'hyphen spacing %j is a strong match once fetched, even with legacy stored fields', (partOriginal) => {
+    const current = Object.freeze({ ...nc, partOriginal: 'SM-6604-A', partNorm: 'STALE', partBase: 'STALE' });
+    const candidate = Object.freeze(capa({}, {
+      partOriginal, partNorm: 'SM-6604 -A', partBase: 'SM-6604 ', partRevision: 'A',
+    }));
+    const result = matchCaptures(current, [candidate]);
+    expect(result.strong).toEqual([expect.objectContaining({
+      partOriginal, partNorm: 'SM-6604-A', partBase: 'SM-6604', partRevision: 'A',
+    })]);
+    expect(result.relatedRevision).toEqual([]);
+    expect(candidate.partBase).toBe('SM-6604 ');
+    expect(current.partNorm).toBe('STALE');
+  },
+);
+
+test('legacy spaced NC is normalised from its original, and another revision stays related', () => {
+  const current = Object.freeze({ ...nc, partOriginal: ' SM-6604 - A ', partNorm: 'SM-6604 - A', partBase: 'SM-6604 - A' });
+  const candidate = Object.freeze(capa({ partNumber: 'SM-6604- B' }, { partNorm: 'SM-6604- B', partBase: 'SM-6604- B' }));
+  const result = matchCaptures(current, [candidate]);
+  expect(result.strong).toEqual([]);
+  expect(result.relatedRevision).toEqual([expect.objectContaining({ partBase: 'SM-6604', partRevision: 'B' })]);
+});
+
+test('hyphen formatting does not silently match a typo or change failure-mode rules', () => {
+  const current = { ...nc, partOriginal: 'SM-6604-A', supplier: '' };
+  const typo = capa({ partNumber: 'SM-6640 -A', supplier: '' });
+  expect(matchCaptures(current, [typo])).toEqual({ strong: [], relatedRevision: [], otherRelated: [] });
+  const changedMode = capa({ partNumber: 'SM-6604 -A', failureMode: 'FM -01' });
+  expect(matchCaptures(current, [changedMode]).strong).toEqual([]);
+});
+
+test('JQL recomputes the current base but does not expand the search to stale indexed bases', () => {
+  const query = buildMatchJql({ ...nc, partOriginal: 'SM-6604 -A', partBase: 'SM-6604 ' });
+  expect(query).toContain('qlPartBase = "SM-6604"');
+  expect(query).not.toContain('"SM-6604 "');
+  expect(query).toContain('qlClosed < "2026-10-31"');
+});
 test.each(['P-4471-B', 'P-4471-AA', 'P-4471'])('different revision is relatedRevision, never strong: %s', (partNumber) => {
   const result = classify(capa({ partNumber }));
   expect(result.strong).toEqual([]);
@@ -45,7 +84,7 @@ test.each([
   ['fm-01 ', 'FM-01'],
   ['FM-01', 'fm-01 '],
   [' \tfailure  mode\n01 ', 'FAILURE MODE 01'],
-])('failure modes use part-number normalisation and retain originals: %j vs %j', (currentMode, candidateMode) => {
+])('failure modes use text normalisation and retain originals: %j vs %j', (currentMode, candidateMode) => {
   const current = Object.freeze({ ...nc, failureMode: currentMode });
   const candidate = Object.freeze(capa({ failureMode: candidateMode }));
   const result = matchCaptures(current, [candidate]);

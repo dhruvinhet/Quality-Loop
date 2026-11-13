@@ -19,7 +19,7 @@ test.each([
   expect(differsByAtMostOneEdit(compactPart(left), compactPart(right))).toBe(expected);
 });
 
-test('transposition and stray space are hints without changing any match class or originals', () => {
+test('transposition remains hint-only, while hyphen spacing is a strong match and originals are preserved', () => {
   const candidate = Object.freeze(capa('2', { partNumber: ' p-5210-a ', failureMode: ' fm-01 ' }));
   const current = Object.freeze({ ...nc });
   const before = matchCaptures(current, [candidate]);
@@ -31,8 +31,9 @@ test('transposition and stray space are hints without changing any match class o
   expect(before.strong).toEqual([]);
   expect(before.relatedRevision).toEqual([]);
   const space = capa('3', { partNumber: 'SM-6604 -A' });
-  expect(selectHints({ ...nc, partOriginal: 'SM-6604-A' }, [space])[0].reason)
-    .toBe('Part number differs slightly: stored "SM-6604 -A", this NC "SM-6604-A"');
+  const spacedNc = { ...nc, partOriginal: 'SM-6604-A' };
+  expect(selectHints(spacedNc, [space])).toEqual([]);
+  expect(matchCaptures(spacedNc, [space]).strong).toEqual([expect.objectContaining({ id: '3', partOriginal: 'SM-6604 -A' })]);
   expect(space.partOriginal).toBe('SM-6604 -A');
 });
 

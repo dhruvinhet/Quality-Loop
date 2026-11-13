@@ -72,11 +72,13 @@ flowchart LR
 
 ## Matching rules
 
-1. Normalisation trims whitespace, collapses inner whitespace and converts to uppercase. `partOriginal` preserves the input part number, and cards use it for display.
+1. Normalisation trims whitespace, collapses inner whitespace and converts to uppercase. Part numbers additionally follow the named rule **spaces around hyphens are removed**: `SM-6604 -A` and `SM-6604-A` are equal after normalisation. This is deterministic formatting normalisation, not fuzzy matching; failure-mode text normalisation is unchanged. `partOriginal` preserves the input part number, and cards use it for display.
 2. The current revision pattern is a trailing `-<1–2 letters>` suffix of the normalised part. An otherwise eligible different revision of the same base part, with the same failure mode, is a **related revision**, never an exact match.
 3. A strong or related-revision match needs a recorded QualityLoop closed date between 1 and 365 days before the NC's detection date. Jira status is not a matching gate.
 4. Supplier and line do not affect strong or related-revision matches. Supplier can affect **Other related records**; line supplies supporting facts.
 5. Strong and related-revision matching use no fuzzy comparisons. Limited, labelled hints can surface some part-number typos; they do not cover every typo.
+
+Existing stored CAPAs keep their old `partNorm` and `partBase` until re-saved; the matcher re-normalises `partOriginal` in memory once a record is fetched, but JQL on `qlPartBase` can still miss older records saved with a trailing-space base, so open and re-save affected CAPAs to refresh those stored fields.
 
 ## Evaluation
 
@@ -88,10 +90,10 @@ The evaluation lives in [`eval/`](eval/README.md). The local dev run uses 24 CAP
 | Metric | Dev (18 NCs) | Test (42 NCs) |
 |---|---|---|
 | Signature correctness (L1) | 18/18 | TODO |
-| Pair recall | 0.813 | TODO |
+| Pair recall | 0.875 | TODO |
 | Recall including hints | 0.938 | TODO |
-| Pair precision | 0.722 | TODO |
-| Review cards per NC (avg / max) | 1.06 / 2 | TODO |
+| Pair precision | 0.737 | TODO |
+| Review cards per NC (avg / max) | 1.11 / 2 | TODO |
 
 These are synthetic pure-logic harness results, not live Jira or field performance. The scorer prints every missed TRUE pair with its dataset trap category.
 

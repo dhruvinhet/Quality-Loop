@@ -40,7 +40,7 @@ test('saves only to the context issue and produces the complete property via asU
   expect(options.method).toBe('PUT');
   const value = JSON.parse(options.body);
   expect(value).toEqual(result.record);
-  expect(value).toMatchObject({ partOriginal: payload.partNumber, partNorm: 'P-4471 -A', schemaVersion: 2 });
+  expect(value).toMatchObject({ partOriginal: payload.partNumber, partNorm: 'P-4471-A', partBase: 'P-4471', schemaVersion: 2 });
   expect(Object.keys(value).sort()).toEqual([
     'schemaVersion', 'recordType', 'partOriginal', 'partNorm', 'partBase', 'partRevision',
     'failureMode', 'supplier', 'line', 'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'rootCause', 'actionsTaken', 'updatedAt',

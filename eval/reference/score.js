@@ -42,18 +42,21 @@ const labels = Object.fromEntries(JSON.parse(fs.readFileSync(files.labels, 'utf8
 
 // ---- L1 reference rules (see eval/README.md, section "L1 rules") ----
 const norm = (s) => (s == null ? '' : String(s)).trim().replace(/\s+/g, ' ').toUpperCase();
+// T24 named part-number rule: spaces around hyphens are removed.
+// Failure-mode text keeps the original trim/collapse/uppercase rules.
+const normPart = (s) => norm(s).replace(/\s*-\s*/g, '-');
 const splitPart = (p) => { const m = /^(.*)-([A-Z]{1,2})$/.exec(p); return m ? { base: m[1], rev: m[2] } : { base: p, rev: '' }; };
 const dayNum = (d) => Math.floor(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 86400000);
 
 function expectedFor(nc) {
-  const np = norm(nc.part), nf = norm(nc.failureMode), ns = splitPart(np);
+  const np = normPart(nc.part), nf = norm(nc.failureMode), ns = splitPart(np);
   const out = { strong: [], relatedRevision: [] };
   for (const c of corpus) {
     if (!c.closedDate) continue;
     const days = dayNum(nc.detectedDate) - dayNum(c.closedDate);
     if (days < 1 || days > 365) continue;
     if (norm(c.failureMode) !== nf || !np) continue;
-    const cp = norm(c.part), cs = splitPart(cp);
+    const cp = normPart(c.part), cs = splitPart(cp);
     if (cp === np) out.strong.push(c.id);
     else if (cs.base === ns.base && cs.rev !== ns.rev) out.relatedRevision.push(c.id);
   }

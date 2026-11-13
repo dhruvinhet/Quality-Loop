@@ -4,9 +4,9 @@ jest.mock('@forge/react', () => Object.fromEntries(
 
 const React = require('react');
 const HintResults = require('../HintResults').default;
-const result = { applicable: true, hints: [{ id: '2', key: 'QL-2', summary: 'DEMO CAPA with a spaced part number', partOriginal: 'SM-6604 -A',
+const result = { applicable: true, hints: [{ id: '2', key: 'QL-2', summary: 'DEMO CAPA with a transposed part number', partOriginal: 'SM-6640 -A',
   failureMode: ' fm-01 ', closedDate: '2026-10-01',
-  reason: 'Part number differs slightly: stored "SM-6604 -A", this NC "SM-6604-A"' }] };
+  reason: 'Part number differs slightly: stored "SM-6640 -A", this NC "SM-6604-A"' }] };
 const nodes = (element) => {
   if (element == null || typeof element === 'boolean') return [];
   if (Array.isArray(element)) return element.flatMap(nodes);
@@ -31,8 +31,8 @@ test('expanded hints show the link, unchanged stored strings and one reason, wit
   jest.spyOn(React, 'useState').mockReturnValue([true, jest.fn()]);
   const tree = nodes(HintResults({ result }));
   expect(tree.find(({ type }) => type === 'Link').props.href).toBe('/browse/QL-2');
-  expect(tree).toContain(' DEMO CAPA with a spaced part number');
-  expect(tree).toContain('Part number (as stored): "SM-6604 -A"');
+  expect(tree).toContain(' DEMO CAPA with a transposed part number');
+  expect(tree).toContain('Part number (as stored): "SM-6640 -A"');
   expect(tree).toContain('Failure mode (as stored): " fm-01 "');
   expect(tree.filter((node) => node === result.hints[0].reason)).toHaveLength(1);
   expect(tree.filter(({ type }) => type === 'Button')).toHaveLength(1);

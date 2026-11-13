@@ -46,10 +46,10 @@ The dataset was written **before** the evaluation harness, and its file hashes a
 
 ## L1 rules (the reference specification)
 
-1. `norm(x)` = trim, collapse inner whitespace to one space, uppercase.
+1. Text `norm(x)` = trim, collapse inner whitespace to one space, uppercase. Part numbers additionally follow the named rule **spaces around hyphens are removed**, after whitespace collapse: `normPart(x) = norm(x).replace(/\s*-\s*/g, '-')`. For example, `SM-6604 -A`, `SM-6604- A`, and ` SM-6604 - A ` normalise to `SM-6604-A`. This is deterministic formatting normalisation, not fuzzy matching; failure modes retain text `norm(x)` only. Original part strings are preserved.
 2. Revision = a trailing `-<1–2 letters>` suffix of the normalised part. Base = everything before it. With no suffix, base = whole part and revision = "".
 3. A CAPA is eligible only if `closedDate` is present and `1 ≤ detectedDate − closedDate ≤ 365` days. A same-day closure does not count.
-4. **strong:** eligible, same normalised part, and same normalised failure mode.
+4. **strong:** eligible, same `normPart(part)`, and same text `norm(failureMode)`.
 5. **relatedRevision:** eligible, same base, different revision, and same failure mode.
 6. Supplier and line are supporting facts only; they never create or remove a match. `otherRelated` is not scored.
 

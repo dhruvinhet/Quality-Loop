@@ -8,7 +8,8 @@ export function normalise(partOriginal, pattern = PART_PATTERN) {
   if (typeof partOriginal !== 'string') {
     throw new TypeError('Part number must be text.');
   }
-  const partNorm = normaliseText(partOriginal);
+  // Named part-number rule: spaces around hyphens are removed. No fuzzy matching.
+  const partNorm = normaliseText(partOriginal).replace(/\s*-\s*/g, '-');
   // A fresh regex keeps configurable global/sticky patterns deterministic.
   const match = new RegExp(pattern.source, pattern.flags).exec(partNorm);
   return {

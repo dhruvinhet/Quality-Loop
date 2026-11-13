@@ -33,7 +33,7 @@ test('builds the versioned property, preserves original, and clears CAPA-only fi
   const input = Object.freeze({ ...nc, closedDate: '2026-10-30', effectivenessEvidenceUrl: 'https://example.com' });
   expect(buildCapture(input, '2026-10-31T00:00:00.000Z')).toEqual({
     schemaVersion: 2, recordType: 'NC', partOriginal: nc.partNumber,
-    partNorm: 'P-4471 -A', partBase: 'P-4471 ', partRevision: 'A',
+    partNorm: 'P-4471-A', partBase: 'P-4471', partRevision: 'A',
     failureMode: 'FM-01', supplier: '', line: '', detectedDate: '2026-10-31',
     closedDate: null, effectivenessEvidenceUrl: '', rootCause: '', actionsTaken: '', updatedAt: '2026-10-31T00:00:00.000Z',
   });
