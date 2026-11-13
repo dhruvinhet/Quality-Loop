@@ -13,7 +13,7 @@ export function buildMatchJql(capture, lookbackDays = defaultLookbackDays) {
 }
 
 function boundedJql(capture, signature, lookbackDays = defaultLookbackDays) {
-  return `qlRecordType = "CAPA" AND ${signature} AND qlClosed >= ${escapeJqlValue(windowStart(capture.detectedDate, lookbackDays))} AND qlClosed <= ${escapeJqlValue(capture.detectedDate)} ORDER BY qlClosed DESC, key ASC`;
+  return `qlRecordType = "CAPA" AND ${signature} AND qlClosed >= ${escapeJqlValue(windowStart(capture.detectedDate, lookbackDays))} AND qlClosed < ${escapeJqlValue(capture.detectedDate)} ORDER BY qlClosed DESC, key ASC`;
 }
 
 export function buildOtherRelatedJql(capture) {

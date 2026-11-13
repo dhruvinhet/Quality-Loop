@@ -31,10 +31,11 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 test('saves only to the context issue and produces the complete property via asUser', async () => {
-  requestJira.mockResolvedValue(response(201));
+  requestJira.mockResolvedValueOnce(response(200, { properties: {} })).mockResolvedValueOnce(response(201));
   const result = await handler.saveCapture({ context, payload });
-  expect(requestJira).toHaveBeenCalledTimes(1);
-  const [path, options] = requestJira.mock.calls[0];
+  expect(requestJira).toHaveBeenCalledTimes(2);
+  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001?fields=summary&properties=qualityloop');
+  const [path, options] = requestJira.mock.calls[1];
   expect(path).toBe('/rest/api/3/issue/10001/properties/qualityloop');
   expect(options.method).toBe('PUT');
   const value = JSON.parse(options.body);
@@ -44,7 +45,56 @@ test('saves only to the context issue and produces the complete property via asU
     'schemaVersion', 'recordType', 'partOriginal', 'partNorm', 'partBase', 'partRevision',
     'failureMode', 'supplier', 'line', 'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'rootCause', 'actionsTaken', 'updatedAt',
   ].sort());
+  expect(api.asUser).toHaveBeenCalledTimes(2);
+});
+
+test.each([['NC', 'CAPA'], ['CAPA', 'NC']])('direct saveCapture cannot convert an existing %s to %s', async (storedType, requestedType) => {
+  requestJira.mockResolvedValue(response(200, { properties: { qualityloop: { schemaVersion: 2, recordType: storedType } } }));
+  expect(await handler.saveCapture({ context, payload: { ...payload, recordType: requestedType, closedDate: '2026-10-01' } })).toEqual({
+    error: 'Record type cannot be changed after the first save. Create a new issue instead.',
+  });
+  expect(requestJira).toHaveBeenCalledTimes(1);
   expect(api.asUser).toHaveBeenCalledTimes(1);
+  expect(requestJira.mock.calls.some(([, options]) => options.method === 'PUT')).toBe(false);
+});
+
+test('existing NC can save edits without changing type', async () => {
+  requestJira.mockResolvedValueOnce(response(200, { properties: { qualityloop: { schemaVersion: 2, recordType: 'NC' } } }))
+    .mockResolvedValueOnce(response(200));
+  expect(await handler.saveCapture({ context, payload })).toHaveProperty('record.recordType', 'NC');
+  expect(requestJira).toHaveBeenCalledTimes(2);
+});
+
+test('a new CAPA cannot save without a closed date', async () => {
+  requestJira.mockResolvedValue(response(200, { properties: {} }));
+  expect(await handler.saveCapture({ context, payload: { ...payload, recordType: 'CAPA' } })).toEqual({
+    fieldErrors: { closedDate: 'Select a closed date for a CAPA. Matching uses this date, not Jira status.' },
+  });
+  expect(requestJira).toHaveBeenCalledTimes(1);
+  expect(requestJira.mock.calls.some(([, options]) => options.method === 'PUT')).toBe(false);
+});
+
+test('type-change rejection uses the exact error even when other CAPA fields are missing', async () => {
+  requestJira.mockResolvedValue(response(200, { properties: { qualityloop: { recordType: 'NC' } } }));
+  expect(await handler.saveCapture({ context, payload: { ...payload, recordType: 'CAPA' } })).toEqual({
+    error: 'Record type cannot be changed after the first save. Create a new issue instead.',
+  });
+  expect(requestJira).toHaveBeenCalledTimes(1);
+});
+
+test.each([1, 2])('legacy schema %i CAPA without closure still loads and can save after entering the date', async (schemaVersion) => {
+  const record = { schemaVersion, recordType: 'CAPA', partOriginal: payload.partNumber, closedDate: null };
+  requestJira.mockResolvedValueOnce(response(200, { value: record }));
+  expect(await handler.loadCapture({ context })).toEqual({ record });
+  requestJira.mockResolvedValueOnce(response(200, { properties: { qualityloop: record } })).mockResolvedValueOnce(response(200));
+  expect(await handler.saveCapture({ context, payload: { ...payload, recordType: 'CAPA', closedDate: '2026-10-01' } }))
+    .toHaveProperty('record.closedDate', '2026-10-01');
+});
+
+test('failed type-check read never proceeds to a write or reveals response data', async () => {
+  requestJira.mockResolvedValue(response(500, { secret: 'hidden' }));
+  expect(await handler.saveCapture({ context, payload })).toEqual({ error: expect.any(String) });
+  expect(requestJira).toHaveBeenCalledTimes(1);
 });
 
 test('rejects payload issue identifiers before any API call', async () => {
@@ -52,10 +102,12 @@ test('rejects payload issue identifiers before any API call', async () => {
   expect(requestJira).not.toHaveBeenCalled();
 });
 
-test('rejects missing context and invalid capture fields before any API call', async () => {
+test('rejects missing context before any API call and invalid capture fields before writing', async () => {
   expect(await handler.saveCapture({ context: {}, payload })).toHaveProperty('error');
-  expect(await handler.saveCapture({ context, payload: { ...payload, partNumber: ' ' } })).toHaveProperty('fieldErrors.partNumber');
   expect(requestJira).not.toHaveBeenCalled();
+  expect(await handler.saveCapture({ context, payload: { ...payload, partNumber: ' ' } })).toHaveProperty('fieldErrors.partNumber');
+  expect(requestJira).toHaveBeenCalledTimes(1);
+  expect(requestJira.mock.calls.some(([, options]) => options.method === 'PUT')).toBe(false);
 });
 
 test('loads the property asUser for form prefill', async () => {
@@ -69,6 +121,15 @@ test.each([403, 404])('returns nothing on denied/missing property operations (%s
   requestJira.mockResolvedValue(response(status, { value: { secret: 'hidden' } }));
   expect(await handler.loadCapture({ context })).toBeNull();
   expect(await handler.saveCapture({ context, payload })).toBeNull();
+});
+
+test.each([403, 404])('save returns nothing if write access is revoked after the type check (%s)', async (status) => {
+  const json = jest.fn();
+  requestJira.mockResolvedValueOnce(response(200, { properties: { qualityloop: { recordType: 'NC' } } }))
+    .mockResolvedValueOnce({ status, ok: false, json });
+  expect(await handler.saveCapture({ context, payload })).toBeNull();
+  expect(requestJira).toHaveBeenCalledTimes(2);
+  expect(json).not.toHaveBeenCalled();
 });
 
 test('returns errors as data on Jira failure without exposing response bodies', async () => {

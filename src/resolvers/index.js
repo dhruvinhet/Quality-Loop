@@ -121,6 +121,18 @@ define('findHints', [], async (issueId) => {
 });
 
 define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {
+  // Read the issue with its property so a missing property is distinct from an
+  // inaccessible issue (both can be 404 on the property endpoint).
+  const response = await api.asUser().requestJira(
+    route`/rest/api/3/issue/${issueId}?fields=summary&properties=qualityloop`,
+    { headers: { Accept: 'application/json' } },
+  );
+  if (response.status === 403 || response.status === 404) return null;
+  checkJira(response);
+  const stored = (await response.json()).properties?.qualityloop;
+  if (stored?.recordType && payload.recordType !== stored.recordType) {
+    return { error: 'Record type cannot be changed after the first save. Create a new issue instead.' };
+  }
   const fieldErrors = validateCapture(payload);
   if (Object.keys(fieldErrors).length) return { fieldErrors };
   const record = buildCapture(payload);

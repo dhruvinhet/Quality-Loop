@@ -22,6 +22,9 @@ export function validateCapture(input = {}) {
     errors.failureMode = 'Select a failure mode.';
   }
   if (input.recordType === 'NC' && !input.detectedDate) errors.detectedDate = 'Select a detected date for an NC.';
+  if (input.recordType === 'CAPA' && !input.closedDate) {
+    errors.closedDate = 'Select a closed date for a CAPA. Matching uses this date, not Jira status.';
+  }
   for (const field of ['detectedDate', ...(input.recordType === 'CAPA' ? ['closedDate'] : [])]) {
     if (input[field] != null && input[field] !== '' && !validDate(input[field])) errors[field] = 'Enter a valid date (YYYY-MM-DD).';
   }

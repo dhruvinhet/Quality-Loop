@@ -15,10 +15,18 @@ test('validates real calendar dates', () => {
   expect(validDate('31/10/2026')).toBe(false);
 });
 
-test('CAPA dates and evidence are optional, but a supplied link must be http(s)', () => {
-  expect(validateCapture({ ...nc, recordType: 'CAPA', detectedDate: '' })).toEqual({});
-  expect(validateCapture({ ...nc, recordType: 'CAPA', effectivenessEvidenceUrl: 'javascript:alert(1)' })).toHaveProperty('effectivenessEvidenceUrl');
-  expect(validateCapture({ ...nc, recordType: 'CAPA', effectivenessEvidenceUrl: 'https://example.com/evidence' })).toEqual({});
+test.each([undefined, null, ''])('CAPA requires a closed date when missing: %j', (closedDate) => {
+  expect(validateCapture({ ...nc, recordType: 'CAPA', closedDate })).toEqual({
+    closedDate: 'Select a closed date for a CAPA. Matching uses this date, not Jira status.',
+  });
+});
+
+test('CAPA detected date and evidence are optional, but supplied values must be valid', () => {
+  const capa = { ...nc, recordType: 'CAPA', closedDate: '2026-10-30', detectedDate: '' };
+  expect(validateCapture(capa)).toEqual({});
+  expect(validateCapture({ ...capa, closedDate: '2026-02-30' })).toHaveProperty('closedDate');
+  expect(validateCapture({ ...capa, effectivenessEvidenceUrl: 'javascript:alert(1)' })).toHaveProperty('effectivenessEvidenceUrl');
+  expect(validateCapture({ ...capa, effectivenessEvidenceUrl: 'https://example.com/evidence' })).toEqual({});
 });
 
 test('builds the versioned property, preserves original, and clears CAPA-only fields for NC', () => {
@@ -32,7 +40,7 @@ test('builds the versioned property, preserves original, and clears CAPA-only fi
 });
 
 test('CAPA narrative fields are optional text and saved only for CAPA', () => {
-  const input = { ...nc, recordType: 'CAPA', rootCause: 'Inspection record', actionsTaken: 'Updated fixture' };
+  const input = { ...nc, recordType: 'CAPA', closedDate: '2026-10-30', rootCause: 'Inspection record', actionsTaken: 'Updated fixture' };
   expect(validateCapture(input)).toEqual({});
   expect(buildCapture(input)).toMatchObject({ schemaVersion: 2, rootCause: input.rootCause, actionsTaken: input.actionsTaken });
   expect(buildCapture({ ...input, recordType: 'NC' })).toMatchObject({ rootCause: '', actionsTaken: '' });

@@ -66,7 +66,7 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
     <Form onSubmit={handleSubmit(save)}>
       <FormSection description="Save quality details on this issue. Fields marked * are required.">
         <Label labelFor={getFieldId('recordType')}>Record type *</Label>
-        <Select {...recordTypeField} options={RECORD_TYPES} isDisabled={isSubmitting}
+        <Select {...recordTypeField} options={RECORD_TYPES} isDisabled={isSubmitting || !!record?.recordType}
           onChange={(option) => {
             recordTypeField.onChange(option);
             setRecordType(option?.value ?? '');
@@ -102,8 +102,9 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
           <Label labelFor={getFieldId('actionsTaken')}>Actions taken</Label>
           <TextArea {...field('actionsTaken')} defaultValue={getValues('actionsTaken')} isDisabled={isSubmitting} maxLength={2000} />
           {error('actionsTaken')}
-          <Label labelFor={getFieldId('closedDate')}>Closed date</Label>
+          <Label labelFor={getFieldId('closedDate')}>Closed date *</Label>
           <DatePicker {...field('closedDate')} defaultValue={getValues('closedDate')} dateFormat="YYYY-MM-DD" locale="en-CA" placeholder="YYYY-MM-DD" shouldShowCalendarButton isDisabled={isSubmitting} />
+          <Text>Required for recurrence matching. Jira status is not used.</Text>
           {error('closedDate')}
 
           <Label labelFor={getFieldId('effectivenessEvidenceUrl')}>Effectiveness evidence link</Label>
