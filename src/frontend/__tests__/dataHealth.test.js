@@ -39,7 +39,7 @@ test('orphan check shows count, cancellation writes nothing, and removal require
   invoke.mockResolvedValueOnce({ scanned: 5, found: 3, unknown: 1, scanComplete: true, removed: 2, retained: 1, removeComplete: true });
   await click(render(), 'Confirm removal');
   expect(invoke).toHaveBeenLastCalledWith('removeOrphanPage', { token: 'ticket', expectedCount: 3, confirmed: true });
-  expect(render()).toContain('Removed 2 orphaned records. 1 records retained after re-check.');
+  expect(render()).toContain('Removed 2 orphaned records. 1 record retained after re-check.');
 });
 
 test('a budget pause offers resume using the same server ticket', async () => {
@@ -51,4 +51,17 @@ test('a budget pause offers resume using the same server ticket', async () => {
     ['startDataHealthCheck', {}], ['checkOrphanPage', { token: 'ticket' }], ['checkOrphanPage', { token: 'ticket' }],
   ]);
   expect(render()).toContain('2 orphaned records found (issues deleted)');
+});
+
+test('one orphan has singular count, confirmation and removal wording', async () => {
+  invoke.mockResolvedValueOnce({ token: 'ticket' }).mockResolvedValueOnce({ scanned: 1, found: 1, unknown: 1, scanComplete: true });
+  await click(render(), 'Check for orphaned records');
+  expect(render()).toContain('1 orphaned record found (issues deleted)');
+  expect(render()).toContain('Record checked: 1. Record with unresolved checks: 1.');
+  await click(render(), 'Remove orphaned records');
+  expect(render().some((node) => typeof node === 'string' && node.includes('Remove up to 1 orphaned app record?'))).toBe(true);
+  invoke.mockResolvedValueOnce({ found: 1, removed: 1, retained: 0, removeComplete: true });
+  await click(render(), 'Confirm removal');
+  expect(render()).toContain('Removed 1 orphaned record. 0 records retained after re-check.');
+  expect(render()).toContain('Orphaned record removed: 1.');
 });

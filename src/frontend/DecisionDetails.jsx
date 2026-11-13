@@ -131,10 +131,11 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
     finally { setLinkRepair(null); busyRef.current = false; setBusy(false); onChanged(); }
   };
   const eligible = data?.concernAllowed ?? (pairState?.state === 'CONFIRMED' || !match.effectivenessEvidenceUrl?.trim());
+  const singularCount = data?.confirmedCount === 1 && !data?.confirmedCountIncomplete;
   return <Stack space="space.100">
     <Text><Lozenge>{pairState ? STATE_LABELS[pairState.state] : 'Decision state unavailable'}</Lozenge></Text>
     {data?.confirmedCountUnavailable ? <Text>Count unavailable — refresh to try again</Text>
-      : data && <Text>{`NCs currently confirmed as recurrences of this CAPA: ${data.confirmedCount}${data.confirmedCountIncomplete && data.confirmedCount !== '50+' ? '+ (limited check; total unavailable)' : ''} (may take a few seconds to update)`}</Text>}
+      : data && <Text>{`${singularCount ? 'NC currently confirmed as a recurrence' : 'NCs currently confirmed as recurrences'} of this CAPA: ${data.confirmedCount}${data.confirmedCountIncomplete && data.confirmedCount !== '50+' ? '+ (limited check; total unavailable)' : ''} (may take a few seconds to update)`}</Text>}
     {!data && <Text>Decision state and history are loading or unavailable.</Text>}
     {!readOnly && <>
       <Button isDisabled={!decisionReady || busy} onClick={() => open('CONFIRM')}>Engineer-confirmed recurrence</Button>

@@ -1,5 +1,5 @@
 jest.mock('@forge/react', () => Object.fromEntries(
-  ['Box', 'Button', 'Link', 'Stack', 'Text'].map((name) => [name, name]),
+  ['Box', 'Button', 'Link', 'SectionMessage', 'Stack', 'Text'].map((name) => [name, name]),
 ));
 
 const React = require('react');
@@ -13,15 +13,19 @@ const nodes = (element) => {
   return [element, ...(element.props ? nodes(element.props.children) : [])];
 };
 
+beforeEach(() => {
+  jest.spyOn(React, 'useState').mockImplementation((initial) => [initial, jest.fn()]);
+  jest.spyOn(React, 'useEffect').mockImplementation(() => {});
+});
 afterEach(() => jest.restoreAllMocks());
 
-test('hints start collapsed and a button expands/collapses the separate section', () => {
+test('nonempty hints start expanded and a button can collapse the separate section', () => {
   const setExpanded = jest.fn();
-  jest.spyOn(React, 'useState').mockReturnValue([false, setExpanded]);
+  React.useState.mockReturnValue([true, setExpanded]);
   const tree = nodes(HintResults({ result }));
-  expect(React.useState).toHaveBeenCalledWith(false);
+  expect(React.useState).toHaveBeenCalledWith(true);
   expect(tree).toContain('Not matched — check these');
-  expect(tree.some(({ type }) => type === 'Link')).toBe(false);
+  expect(tree.some(({ type }) => type === 'Link')).toBe(true);
   tree.find(({ type }) => type === 'Button').props.onClick();
   expect(setExpanded.mock.calls[0][0](false)).toBe(true);
   expect(setExpanded.mock.calls[0][0](true)).toBe(false);
@@ -42,8 +46,11 @@ test('expanded hints show the link, unchanged stored strings and one reason, wit
 test('expanded truncated hint search shows the cap notice and cautious manual-review wording', () => {
   jest.spyOn(React, 'useState').mockReturnValue([true, jest.fn()]);
   const tree = nodes(HintResults({ result: { ...result, incomplete: true, truncated: true } }));
-  expect(tree).toContain('The hint search was limited to 50 records; more may exist.');
-  expect(tree).toContain('These are hints for checking recorded details. These records do not meet the matching rules, but may still be worth a manual review.');
+  expect(tree).toContain('The hint searches check at most 50 candidates each; more may exist.');
+  expect(tree).toContain('Up to 3 hints, from limited searches (at most 50 candidates each): near-identical part numbers, same part with no closed date, and older precedents. These are not matches.');
+  expect(tree).toContain('These records do not meet the matching rules, but may still be worth a manual review. Only records you can browse are shown.');
+  expect(tree.find(({ type }) => type === 'SectionMessage').props.appearance).toBe('information');
+  expect(tree.some((node) => typeof node === 'string' && node.includes('recently closed'))).toBe(false);
   expect(tree.some((node) => typeof node === 'string' && node.includes('They are not possible recurrences.'))).toBe(false);
   expect(tree.some((node) => typeof node === 'string' && node.includes('hint time budget was reached'))).toBe(false);
 });
@@ -51,6 +58,47 @@ test('expanded truncated hint search shows the cap notice and cautious manual-re
 test('hint time budget and search truncation have distinct notices when both apply', () => {
   jest.spyOn(React, 'useState').mockReturnValue([true, jest.fn()]);
   const tree = nodes(HintResults({ result: { ...result, incomplete: true, budgetExceeded: true, truncated: true } }));
-  expect(tree).toContain('The hint search was limited to 50 records; more may exist.');
+  expect(tree).toContain('The hint searches check at most 50 candidates each; more may exist.');
   expect(tree).toContain('The hint time budget was reached. Only completed checks are shown; more hints may exist.');
+});
+
+test.each([undefined, { applicable: false }, { applicable: true, hints: [] }])('zero hints hide the hint section: %j', (empty) => {
+  expect(HintResults({ result: empty })).toBeNull();
+});
+
+test('errors and incomplete-search notices stay visible even without hints', () => {
+  const tree = nodes(HintResults({ result: { applicable: true, hints: [], error: 'Could not load hints.', truncated: true, budgetExceeded: true } }));
+  expect(tree).toContain('Could not load hints.');
+  expect(tree).toContain('The hint searches check at most 50 candidates each; more may exist.');
+  expect(tree).toContain('The hint time budget was reached. Only completed checks are shown; more hints may exist.');
+  expect(tree.find(({ type }) => type === 'SectionMessage').props.appearance).toBe('error');
+  expect(tree.some(({ type }) => type === 'Button')).toBe(false);
+});
+
+test('collapsed hints keep the informational not-a-match disclaimer prominent', () => {
+  React.useState.mockReturnValue([false, jest.fn()]);
+  const tree = nodes(HintResults({ result }));
+  expect(tree.some(({ type }) => type === 'Link')).toBe(false);
+  expect(tree.find(({ type }) => type === 'SectionMessage').props.appearance).toBe('information');
+  expect(tree.some((node) => typeof node === 'string' && node.includes('These are not matches.'))).toBe(true);
+});
+
+test('hints arriving after load expand; a manual collapse survives a nonempty refresh', () => {
+  let expanded, previousPresence;
+  React.useState.mockImplementation((initial) => {
+    if (expanded === undefined) expanded = initial;
+    return [expanded, (value) => { expanded = typeof value === 'function' ? value(expanded) : value; }];
+  });
+  React.useEffect.mockImplementation((effect, [presence]) => {
+    if (previousPresence !== presence) { previousPresence = presence; effect(); }
+  });
+  const render = (next) => { HintResults({ result: next }); return nodes(HintResults({ result: next })); };
+  expect(render({ applicable: true, hints: [] })).toEqual([]);
+  let tree = render(result);
+  expect(tree.some(({ type }) => type === 'Link')).toBe(true);
+  tree.find(({ type }) => type === 'Button').props.onClick();
+  tree = render({ ...result, hints: [...result.hints] });
+  expect(tree.some(({ type }) => type === 'Link')).toBe(false);
+  expect(render({ applicable: true, hints: [] })).toEqual([]);
+  expect(render(result).some(({ type }) => type === 'Link')).toBe(true);
 });

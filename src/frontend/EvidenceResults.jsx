@@ -3,6 +3,7 @@ import { Box, Button, Heading, Link, SectionMessage, Stack, Text } from '@forge/
 import { FAILURE_MODES } from '../config/failureModes';
 import DecisionDetails from './DecisionDetails';
 import EvidenceLink from './EvidenceLink';
+import { plural } from '../lib/plural';
 
 export function EvidenceHeading() {
   return <Stack space="space.100">
@@ -13,15 +14,17 @@ export function EvidenceHeading() {
 
 export function EvidenceCard({ match, classification, data, readOnly, ready, onChanged }) {
   const mode = FAILURE_MODES.find(({ value }) => value === match.failureMode)?.label ?? match.failureMode;
+  const part = `${match.partOriginal}${classification !== 'otherRelated' && match.partNorm && match.partOriginal !== match.partNorm
+    ? ` (matched as ${match.partNorm})` : ''}`;
   return <Box padding="space.200" backgroundColor="color.background.neutral">
     <Stack space="space.100">
       <Text><Link href={`/browse/${encodeURIComponent(match.key)}`}>{match.key}</Link>{` ${match.summary}`}</Text>
       <Text>{classification === 'strong'
-        ? `Exact signature: part ${match.partOriginal}; failure mode ${mode}`
+        ? `Exact signature: part ${part}; failure mode ${mode}`
         : classification === 'relatedRevision'
-          ? `Related revision: part ${match.partOriginal}; failure mode ${mode}; different revision (${match.partRevision ?? 'not recorded'})`
+          ? `Related revision: part ${part}; failure mode ${mode}; different revision (${match.partRevision ?? 'not recorded'})`
           : `Related: part ${match.partOriginal}; failure mode ${mode}`}</Text>
-      <Text>{`QualityLoop closure date: ${match.closedDate} · ${match.daysSinceClosure} days after closure`}</Text>
+      <Text>{`QualityLoop closure date: ${match.closedDate} · ${match.daysSinceClosure} ${plural(match.daysSinceClosure, 'day')} after closure`}</Text>
       {classification !== 'otherRelated' && match.statusCategory !== 'done' && <SectionMessage appearance="warning">
         <Text>{`Recorded closure date ${match.closedDate}, but the Jira status is ${match.status || 'unavailable'} (not Done). Check whether this CAPA was reopened.`}</Text>
       </SectionMessage>}
@@ -62,16 +65,16 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
     </>}
     {strong.map((match) => <EvidenceCard key={match.id} match={match} classification="strong"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
-    {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more candidates not checked (most recent 25 verified matches shown).`}</Text>}
-    {!!result.verifiedNotShown?.strong && <Text>{`${result.verifiedNotShown.strong} more verified matches not shown (most recent 25 shown)`}</Text>}
+    {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more ${plural(result.notShown.strong, 'candidate')} not checked (most recent 25 verified matches shown).`}</Text>}
+    {!!result.verifiedNotShown?.strong && <Text>{`${result.verifiedNotShown.strong} more verified ${plural(result.verifiedNotShown.strong, 'match', 'matches')} not shown (most recent 25 shown)`}</Text>}
     {relatedRevision.map((match) => <EvidenceCard key={match.id} match={match} classification="relatedRevision"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
-    {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more candidates not checked (most recent 25 verified matches shown).`}</Text>}
-    {!!result.verifiedNotShown?.relatedRevision && <Text>{`${result.verifiedNotShown.relatedRevision} more verified matches not shown (most recent 25 shown)`}</Text>}
+    {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more ${plural(result.notShown.relatedRevision, 'candidate')} not checked (most recent 25 verified matches shown).`}</Text>}
+    {!!result.verifiedNotShown?.relatedRevision && <Text>{`${result.verifiedNotShown.relatedRevision} more verified ${plural(result.verifiedNotShown.relatedRevision, 'match', 'matches')} not shown (most recent 25 shown)`}</Text>}
     <HistoricalDecisions canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} pairs={Object.fromEntries(Object.entries(pairs)
       .filter(([id]) => ![...strong, ...relatedRevision].some((match) => match.id === id)))} />
-    {readOnly ? <Text>{`Other related records (${otherRelated.length})`}</Text>
-      : <Button appearance="subtle" isSelected={showOther} onClick={() => setShowOther((value) => !value)}>{`Other related records (${otherRelated.length})`}</Button>}
+    {readOnly ? <Text>{`Other related ${plural(otherRelated.length, 'record')} (${otherRelated.length})`}</Text>
+      : <Button appearance="subtle" isSelected={showOther} onClick={() => setShowOther((value) => !value)}>{`Other related ${plural(otherRelated.length, 'record')} (${otherRelated.length})`}</Button>}
     {(readOnly || showOther) && otherRelated.map((match) => <EvidenceCard key={match.id} match={match} classification="otherRelated" />)}
   </Stack>;
 }

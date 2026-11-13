@@ -3,6 +3,7 @@ import ForgeReconciler, { Button, Heading, Stack, Text, Modal, ModalBody, ModalF
 import { invoke } from '@forge/bridge';
 import { callPage, scanRecordPages, runHealthPages } from './pageRunner';
 import GettingStarted from './GettingStarted';
+import { plural } from '../lib/plural';
 
 const call = (name, payload) => callPage(invoke, name, payload);
 
@@ -33,7 +34,7 @@ export function DataPage() {
     try {
       const summary = await runHealthPages(() => call('removeOrphanPage', { token, expectedCount: found, confirmed: true }),
         'removeComplete', (progress) => setHealth({ token, operation: 'remove', ...progress }));
-      setMessage(summary.removeComplete ? `Removed ${summary.removed} orphaned records. ${summary.retained} records retained after re-check.`
+      setMessage(summary.removeComplete ? `Removed ${summary.removed} orphaned ${plural(summary.removed, 'record')}. ${summary.retained} ${plural(summary.retained, 'record')} retained after re-check.`
         : 'Removal paused. Resume the confirmed removal to continue.');
     } catch { setMessage('Removal could not finish. Resume the confirmed removal; records will be re-checked.'); }
     finally { setBusy(false); }
@@ -63,8 +64,8 @@ export function DataPage() {
     <Text>Check stored NC and CAPA references for deleted issues. Only app-record counts are shown; issue content is not read.</Text>
     <Button isDisabled={busy} onClick={() => checkHealth()}>Check for orphaned records</Button>
     {health && typeof health.found === 'number' && <>
-      <Text>{`${health.found} orphaned records found (issues deleted)`}</Text>
-      <Text>{`Records checked: ${health.scanned}. Records with unresolved checks: ${health.unknown}.`}</Text>
+      <Text>{`${health.found} orphaned ${plural(health.found, 'record')} found (issues deleted)`}</Text>
+      <Text>{`${plural(health.scanned, 'Record')} checked: ${health.scanned}. ${plural(health.unknown, 'Record')} with unresolved checks: ${health.unknown}.`}</Text>
       <Text>Trashed projects keep their QualityLoop data. Missing-issue records are not counted as orphaned if any project is in trash or the trash check is unavailable.</Text>
       {health.unknown > 0 && <Text>Permission denials and errors are not treated as deleted. Run another check to retry unresolved records.</Text>}
     </>}
@@ -73,10 +74,10 @@ export function DataPage() {
       <Button appearance="danger" isDisabled={busy} onClick={() => setConfirmRemoval(true)}>Remove orphaned records</Button>}
     {health?.operation === 'remove' && !health.removeComplete &&
       <Button isDisabled={busy} onClick={removeOrphans}>Resume confirmed removal</Button>}
-    {typeof health?.removed === 'number' && health.operation === 'remove' && <Text>{`Orphaned records removed: ${health.removed}.`}</Text>}
+    {typeof health?.removed === 'number' && health.operation === 'remove' && <Text>{`Orphaned ${plural(health.removed, 'record')} removed: ${health.removed}.`}</Text>}
     <ModalTransition>{confirmRemoval && <Modal onClose={() => setConfirmRemoval(false)}>
       <ModalHeader><ModalTitle>Confirm orphaned record removal</ModalTitle></ModalHeader>
-      <ModalBody><Text>{`Remove up to ${health.found} orphaned app records? Each record will be re-checked and removed only if a referenced issue still returns 404 and projects in trash can be ruled out. Jira issues will not be changed.`}</Text></ModalBody>
+      <ModalBody><Text>{`Remove up to ${health.found} orphaned app ${plural(health.found, 'record')}? Each record will be re-checked and removed only if a referenced issue still returns 404 and projects in trash can be ruled out. Jira issues will not be changed.`}</Text></ModalBody>
       <ModalFooter><Button onClick={() => setConfirmRemoval(false)}>Cancel</Button>
         <Button appearance="danger" onClick={removeOrphans}>Confirm removal</Button></ModalFooter>
     </Modal>}</ModalTransition>
@@ -84,7 +85,7 @@ export function DataPage() {
     <Text>Scan app records for NCs and CAPAs you can browse and update their legacy indexes.</Text>
     <Button isDisabled={busy} onClick={find}>Scan accessible app records</Button>
     {message && <Text>{message}</Text>}
-    {result && <Text>{`Accessible app records checked: ${result.scanned}. Indexes updated: ${result.backfilled}. Updates pending: ${result.backfillPending}.`}</Text>}
+    {result && <Text>{`Accessible app ${plural(result.scanned, 'record')} checked: ${result.scanned}. ${plural(result.backfilled, 'Index', 'Indexes')} updated: ${result.backfilled}. ${plural(result.backfillPending, 'Update')} pending: ${result.backfillPending}.`}</Text>}
   </Stack>;
 }
 

@@ -34,9 +34,63 @@ test('current distinct-NC count and capped history are labelled explicitly', () 
   const tree = nodes(DecisionDetails({ match: { id: '2' }, readOnly: true, data: {
     pairState: { version: 10, state: 'CONFIRMED' }, confirmedCount: 1, history: [], historyIncomplete: true,
   } }));
-  expect(tree).toContain('NCs currently confirmed as recurrences of this CAPA: 1 (may take a few seconds to update)');
+  expect(tree).toContain('NC currently confirmed as a recurrence of this CAPA: 1 (may take a few seconds to update)');
   expect(tree).toContain('Older decisions not shown');
 });
+
+const card = { id: '2', key: 'QL-2', partOriginal: 'T24-6604 -A', partNorm: 'T24-6604-A',
+  failureMode: 'FM-01', rootCause: '', actionsTaken: '', supportingFacts: [], closedDate: '2026-10-01', statusCategory: 'done' };
+
+test.each(['strong', 'relatedRevision'])('%s card explains the normalised part while preserving the original', (classification) => {
+  const tree = nodes(EvidenceCard({ match: { ...card, partRevision: 'A' }, classification }));
+  expect(tree.some((node) => typeof node === 'string' && node.includes('part T24-6604 -A (matched as T24-6604-A);'))).toBe(true);
+  expect(card.partOriginal).toBe('T24-6604 -A');
+  if (classification === 'relatedRevision') expect(tree.some((node) => typeof node === 'string' && node.startsWith('Exact signature'))).toBe(false);
+});
+
+test.each([
+  ['strong', 'T24-6604-A', 'T24-6604-A'],
+  ['relatedRevision', 'T24-6604-A', 'T24-6604-A'],
+  ['otherRelated', 'T24-6604 -A', 'T24-6604-A'],
+])('%s card omits matched-as when parts are clean or the record is only other-related', (classification, partOriginal, partNorm) => {
+  const tree = nodes(EvidenceCard({ match: { ...card, partOriginal, partNorm }, classification }));
+  expect(tree.some((node) => typeof node === 'string' && node.includes('(matched as'))).toBe(false);
+});
+
+test.each(['strong', 'relatedRevision', 'otherRelated'])('%s cards use day/days correctly', (classification) => {
+  for (const daysSinceClosure of [0, 1, 2, 365]) {
+    const tree = nodes(EvidenceCard({ match: { ...card, daysSinceClosure }, classification }));
+    expect(tree).toContain(`QualityLoop closure date: 2026-10-01 · ${daysSinceClosure} ${daysSinceClosure === 1 ? 'day' : 'days'} after closure`);
+  }
+});
+
+test.each(['strong', 'relatedRevision'])('%s candidate and omitted-match notices use singular and plural', (kind) => {
+  for (const count of [1, 2]) {
+    const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
+      notShown: { [kind]: count }, verifiedNotShown: { [kind]: count } } }));
+    expect(tree).toContain(`${count} more ${count === 1 ? 'candidate' : 'candidates'} not checked (most recent 25 verified matches shown).`);
+    expect(tree).toContain(`${count} more verified ${count === 1 ? 'match' : 'matches'} not shown (most recent 25 shown)`);
+  }
+});
+
+test.each([0, 1, 2])('other-related labels agree with their count: %i', (count) => {
+  for (const readOnly of [true, false]) {
+    const tree = nodes(EvidenceResults({ readOnly, result: { applicable: true, strong: [], relatedRevision: [],
+      otherRelated: Array.from({ length: count }, (_, id) => ({ ...card, id })) } }));
+    expect(tree).toContain(`Other related ${count === 1 ? 'record' : 'records'} (${count})`);
+  }
+});
+
+test.each([[0, false], [1, false], [2, false], [1, true], ['50+', true]])(
+  'confirmed-NC count handles exact and incomplete counts: %s, incomplete=%s', (confirmedCount, confirmedCountIncomplete) => {
+    const tree = nodes(DecisionDetails({ match: { id: '2' }, readOnly: true, data: {
+      confirmedCount, confirmedCountIncomplete, history: [] } }));
+    const singular = confirmedCount === 1 && !confirmedCountIncomplete;
+    expect(tree.some((node) => typeof node === 'string' && node.startsWith(singular
+      ? 'NC currently confirmed as a recurrence of this CAPA: 1 '
+      : `NCs currently confirmed as recurrences of this CAPA: ${confirmedCount}`))).toBe(true);
+  },
+);
 
 test.each(['strong', 'relatedRevision'])('non-Done %s card shows the exact closure consistency warning', (classification) => {
   const match = { id: '2', key: 'QL-2', summary: 'CAPA', closedDate: '2026-10-21', status: 'Backlog', statusCategory: 'new',
@@ -68,7 +122,7 @@ test('unchecked candidates and omitted verified matches have separate lines per 
 test('verified omissions alone also prevent definitive no-match text', () => {
   const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [],
     uncheckedCandidates: true, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 1 } } }));
-  expect(tree).toContain('1 more verified matches not shown (most recent 25 shown)');
+  expect(tree).toContain('1 more verified match not shown (most recent 25 shown)');
   expect(tree).toContain('No exact signature match found in the completed checks.');
   expect(tree).not.toContain('No closed CAPA with this part and failure mode in the last 365 days');
   expect(tree.some((node) => typeof node === 'string' && node.includes('more candidates not checked'))).toBe(false);

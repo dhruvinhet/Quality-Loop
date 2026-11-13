@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Button, Link, Stack, Text } from '@forge/react';
+import ForgeReconciler, { Button, Heading, Link, Stack, Text } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import PageConfirmation from './PageConfirmation';
 import { callPage, pollSampleReady, scanRecordPages } from './pageRunner';
 
 const call = (name, payload) => callPage(invoke, name, payload);
 
-function SamplePage() {
+export function SamplePage() {
   const [sample, setSample] = useState(null);
   const [busy, setBusy] = useState(true);
   const [dialog, setDialog] = useState(null);
@@ -62,6 +62,11 @@ function SamplePage() {
     });
   }
   return <Stack>
+    <Heading size="small" as="h2">How to try this</Heading>
+    <Text>1. Create the sample scenario below. Review the five issue writes and confirm.</Text>
+    <Text>2. {ready ? <>Open the DEMO new NC <Link href={`/browse/${encodeURIComponent(ready.newNcKey)}`}>{ready.newNcKey}</Link>.</>
+      : 'Wait for the sample to be ready, or use Check sample readiness. Then open the DEMO new NC.'} Open QualityLoop from the apps icon under the issue title and click Save.</Text>
+    <Text>3. Review the DEMO CAPA-B match and any hints. Record an engineer decision with a reason.</Text>
     <Text>Creates five labelled DEMO issues in this project. It never edits existing issues.</Text>
     <Button isDisabled={busy || !sample || sample.exists} onClick={() => run(async () => {
       const plan = await call('prepareSample');
@@ -76,7 +81,6 @@ function SamplePage() {
     {sample?.notes?.map((note) => <Text key={note}>{note}</Text>)}
     {sample?.status === 'complete' && <Button isDisabled={busy} onClick={() => run(checkReady)}>Check sample readiness</Button>}
     {message && <Text>{message}</Text>}
-    {ready && <Text>Ready. Open <Link href={`/browse/${encodeURIComponent(ready.newNcKey)}`}>{ready.newNcKey}</Link> and look at QualityLoop: it should show a signature match with DEMO CAPA-B, and that CAPA-B has no effectiveness evidence recorded. If the panel is not shown, open it from the apps icon under the issue title.</Text>}
     {reports.map((report, index) => <Text key={index}>{report}</Text>)}
     {dialog && <PageConfirmation title={dialog.title} lines={dialog.lines} onCancel={() => setDialog(null)} onConfirm={confirm} />}
   </Stack>;
