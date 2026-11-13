@@ -1,5 +1,6 @@
 import { FAILURE_MODES } from '../config/failureModes';
 import { normalise } from './normalise';
+import { validEvidenceUrl } from './urls';
 
 export const CAPTURE_FIELDS = [
   'recordType', 'partNumber', 'failureMode', 'supplier', 'line',
@@ -34,12 +35,8 @@ export function validateCapture(input = {}) {
     else if (input[field]?.length > 2000) errors[field] = 'Use 2,000 characters or fewer.';
   }
   const url = input.recordType === 'CAPA' ? input.effectivenessEvidenceUrl : '';
-  if (typeof url === 'string' && url.trim()) {
-    try {
-      if (!['https:', 'http:'].includes(new URL(url).protocol)) throw new Error('Invalid protocol');
-    } catch {
-      errors.effectivenessEvidenceUrl = 'Enter a full http:// or https:// link.';
-    }
+  if (typeof url === 'string' && url !== '' && !validEvidenceUrl(url)) {
+    errors.effectivenessEvidenceUrl = 'Use an https:// link.';
   }
   return errors;
 }

@@ -97,6 +97,17 @@ test('failed type-check read never proceeds to a write or reveals response data'
   expect(requestJira).toHaveBeenCalledTimes(1);
 });
 
+test('save rejects a legacy HTTP CAPA edit without dropping or rewriting the stored link', async () => {
+  const record = Object.freeze({ schemaVersion: 2, recordType: 'CAPA', closedDate: '2026-10-01',
+    effectivenessEvidenceUrl: 'http://example.com/legacy-report' });
+  requestJira.mockResolvedValue(response(200, { properties: { qualityloop: record } }));
+  expect(await handler.saveCapture({ context, payload: { ...payload, recordType: 'CAPA', closedDate: record.closedDate,
+    effectivenessEvidenceUrl: record.effectivenessEvidenceUrl } })).toEqual({ fieldErrors: { effectivenessEvidenceUrl: 'Use an https:// link.' } });
+  expect(requestJira).toHaveBeenCalledTimes(1);
+  expect(requestJira.mock.calls.some(([, options]) => options.method === 'PUT')).toBe(false);
+  expect(record.effectivenessEvidenceUrl).toBe('http://example.com/legacy-report');
+});
+
 test('rejects payload issue identifiers before any API call', async () => {
   expect(await handler.saveCapture({ context, payload: { ...payload, issueId: '99999' } })).toHaveProperty('error');
   expect(requestJira).not.toHaveBeenCalled();

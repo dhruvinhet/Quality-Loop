@@ -29,6 +29,16 @@ test('CAPA detected date and evidence are optional, but supplied values must be 
   expect(validateCapture({ ...capa, effectivenessEvidenceUrl: 'https://example.com/evidence' })).toEqual({});
 });
 
+test.each([
+  'https://user:pass@example.com/x', 'http://example.com/evidence', 'javascript:alert(1)',
+  ' https://example.com/evidence', 'https://example.com/evidence ',
+  'https://', 'https:///report.pdf', 'https://example.com/a\nb', ' ',
+])('capture rejects unsafe/new evidence without rewriting it: %j', (effectivenessEvidenceUrl) => {
+  const input = Object.freeze({ ...nc, recordType: 'CAPA', closedDate: '2026-10-01', effectivenessEvidenceUrl });
+  expect(validateCapture(input)).toEqual({ effectivenessEvidenceUrl: 'Use an https:// link.' });
+  expect(input.effectivenessEvidenceUrl).toBe(effectivenessEvidenceUrl);
+});
+
 test('builds the versioned property, preserves original, and clears CAPA-only fields for NC', () => {
   const input = Object.freeze({ ...nc, closedDate: '2026-10-30', effectivenessEvidenceUrl: 'https://example.com' });
   expect(buildCapture(input, '2026-10-31T00:00:00.000Z')).toEqual({

@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { Button, Label, Link, Lozenge, Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle, ModalTransition, Select, Stack, Text, TextArea } from '@forge/react';
 import { invoke } from '@forge/bridge';
-import { REASON_CATEGORIES, STATE_LABELS, TYPE_LABELS, validateDecision, validEvidenceUrl } from '../lib/decisions';
+import { REASON_CATEGORIES, STATE_LABELS, TYPE_LABELS, validateDecision } from '../lib/decisions';
+import EvidenceLink from './EvidenceLink';
 
 function DecisionModal({ type, onClose, onSubmit, busy, error }) {
   const [reason, setReason] = useState('');
@@ -9,7 +10,7 @@ function DecisionModal({ type, onClose, onSubmit, busy, error }) {
   const [category, setCategory] = useState(null);
   const [validation, setValidation] = useState('');
   const submit = () => {
-    const payload = { type, reason, evidenceLinks: links.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+    const payload = { type, reason, evidenceLinks: links.split(/\r?\n/).filter((s) => s !== ''),
       ...(type === 'NOT_RECURRENCE' ? { reasonCategory: category?.value } : {}) };
     const errors = validateDecision({ ...payload, capaId: '1', expectedVersion: 0 });
     if (Object.keys(errors).length) { setValidation(Object.values(errors).join(' ')); return; }
@@ -27,7 +28,7 @@ function DecisionModal({ type, onClose, onSubmit, busy, error }) {
         <Select inputId="decision-category" options={REASON_CATEGORIES.map((value) => ({ value,
           label: value.toLowerCase().replaceAll('_', ' ') }))} value={category} onChange={setCategory} isRequired isDisabled={busy} />
       </>}
-      <Label labelFor="decision-links">Evidence links (optional, up to 5 HTTP or HTTPS URLs; one per line)</Label>
+      <Label labelFor="decision-links">Evidence links (optional, up to 5 HTTPS URLs; one per line)</Label>
       <TextArea id="decision-links" value={links} onChange={(event) => setLinks(event.target.value)} isDisabled={busy} />
       {(validation || error) && <Text>{validation || error}</Text>}
     </Stack></ModalBody>
@@ -151,7 +152,7 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
       <Text>{`${item.authorDisplayName} · ${item.createdAt.slice(0, 10)} · ${TYPE_LABELS[item.type] ?? item.type}${item.id === pairState?.latestDecisionId ? ' · Latest' : ''}`}</Text>
       <Text>{item.reason}</Text>
       {item.reasonCategory && <Text>{`Category: ${item.reasonCategory.toLowerCase().replaceAll('_', ' ')}`}</Text>}
-      {(item.evidenceLinks ?? []).filter(validEvidenceUrl).map((url, i) => <Text key={`${i}:${url}`}><Link href={url} openNewTab>{url}</Link></Text>)}
+      {(item.evidenceLinks ?? []).map((url, i) => <EvidenceLink key={i} url={url} label={url} />)}
       {item.taskKey && <Text>Re-review task: <Link href={`/browse/${encodeURIComponent(item.taskKey)}`}>{item.taskKey}</Link></Text>}
       {item.taskKey && !item.taskLinked && <Button isDisabled={busy || !canRecover} onClick={() => prepareRepair(item.id)}>Verify link</Button>}
       {item.followupUnconfirmed && <>

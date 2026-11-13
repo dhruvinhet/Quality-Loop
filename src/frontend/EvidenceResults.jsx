@@ -2,10 +2,7 @@ import React, { useState } from 'react';
 import { Box, Button, Heading, Link, SectionMessage, Stack, Text } from '@forge/react';
 import { FAILURE_MODES } from '../config/failureModes';
 import DecisionDetails from './DecisionDetails';
-
-function evidenceUrl(value) {
-  try { return ['http:', 'https:'].includes(new URL(value).protocol) ? value : null; } catch { return null; }
-}
+import EvidenceLink from './EvidenceLink';
 
 export function EvidenceHeading() {
   return <Stack space="space.100">
@@ -16,7 +13,6 @@ export function EvidenceHeading() {
 
 export function EvidenceCard({ match, classification, data, readOnly, ready, onChanged }) {
   const mode = FAILURE_MODES.find(({ value }) => value === match.failureMode)?.label ?? match.failureMode;
-  const url = evidenceUrl(match.effectivenessEvidenceUrl);
   return <Box padding="space.200" backgroundColor="color.background.neutral">
     <Stack space="space.100">
       <Text><Link href={`/browse/${encodeURIComponent(match.key)}`}>{match.key}</Link>{` ${match.summary}`}</Text>
@@ -29,7 +25,8 @@ export function EvidenceCard({ match, classification, data, readOnly, ready, onC
       {classification !== 'otherRelated' && match.statusCategory !== 'done' && <SectionMessage appearance="warning">
         <Text>{`Recorded closure date ${match.closedDate}, but the Jira status is ${match.status || 'unavailable'} (not Done). Check whether this CAPA was reopened.`}</Text>
       </SectionMessage>}
-      {url ? <Text>Effectiveness evidence: <Link href={url} openNewTab>View evidence</Link></Text>
+      {match.effectivenessEvidenceUrl != null && match.effectivenessEvidenceUrl !== ''
+        ? <><Text>Effectiveness evidence:</Text><EvidenceLink url={match.effectivenessEvidenceUrl} /></>
         : <Text>No effectiveness evidence recorded at closure</Text>}
       <Text>{`Root cause: ${match.rootCause.trim() || 'not recorded'}`}</Text>
       <Text>{`Actions taken: ${match.actionsTaken.trim() || 'not recorded'}`}</Text>

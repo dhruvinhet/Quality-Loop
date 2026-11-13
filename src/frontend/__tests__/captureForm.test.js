@@ -72,6 +72,17 @@ test('legacy CAPA without a date still renders with its saved type and blank dat
   expect(tree.find((node) => node.type === 'Select' && node.props.name === 'recordType').props.isDisabled).toBe(true);
 });
 
+test('editing a legacy HTTP CAPA retains its link and requires the engineer to fix the field', () => {
+  const url = 'http://example.com/legacy-report';
+  const tree = nodes(CaptureForm({ record: { recordType: 'CAPA', closedDate: '2026-10-01', effectivenessEvidenceUrl: url } }));
+  expect(tree.find((node) => node.type === 'Textfield' && node.props.name === 'effectivenessEvidenceUrl').props.defaultValue).toBe(url);
+  expect(tree).toContain('Not a secure link (http)');
+  expect(validators.effectivenessEvidenceUrl()).toBe('Use an https:// link.');
+  expect(values.effectivenessEvidenceUrl).toBe(url);
+  values.effectivenessEvidenceUrl = 'https://example.com/legacy-report';
+  expect(validators.effectivenessEvidenceUrl()).toBe(true);
+});
+
 test('disabled saved record type is retained in the submitted payload', async () => {
   const record = { recordType: 'CAPA', partOriginal: 'P-1', failureMode: 'FM-01', closedDate: '2026-10-01' };
   const onSaved = jest.fn();

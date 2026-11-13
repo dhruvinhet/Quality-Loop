@@ -90,6 +90,14 @@ test('decision uses context identity and fresh strong matching before committing
   expect(requestJira.mock.calls.map(([path]) => path)).not.toContain('/rest/api/3/search/jql');
   expect(requestJira).toHaveBeenCalledTimes(3);
 });
+
+test.each(['http://example.com/report', 'https://user:pass@example.com/x'])(
+  'direct recordDecision rejects unsafe evidence %j without committing it', async (url) => {
+    expect(await handler.recordDecision({ context, payload: { ...payload, evidenceLinks: [url] } }))
+      .toEqual({ fieldErrors: { evidenceLinks: 'Use an https:// link.' } });
+    expect(store.commitDecision).not.toHaveBeenCalled();
+  },
+);
 test.each(['issueId', 'authorAccountId', 'createdAt', 'state'])('rejects client %s before APIs or storage', async (field) => {
   expect(await handler.recordDecision({ context, payload: { ...payload, [field]: 'injected' } })).toHaveProperty('error');
   expect(requestJira).not.toHaveBeenCalled();

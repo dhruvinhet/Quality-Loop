@@ -1,3 +1,5 @@
+import { validEvidenceUrl } from './urls';
+
 export const DECISION_TYPES = ['CONFIRM', 'NOT_RECURRENCE', 'CONCERN', 'SUPERSEDE'];
 export const REASON_CATEGORIES = ['DIFFERENT_MECHANISM', 'DIFFERENT_CAUSE', 'DATA_ERROR', 'OTHER'];
 export const STATE_LABELS = {
@@ -18,14 +20,6 @@ export function decisionKey(capaId, issueId, id) {
   if (!/^\d{13,16}-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error('Invalid decision identifier.');
   return `${pairKey(capaId, issueId)}:${id}`;
 }
-export function validEvidenceUrl(value) {
-  if (typeof value !== 'string' || value.length > 2000 || value.trim() !== value ||
-      !/^https?:\/\//i.test(value) || /[\u0000-\u0020\u007f]/.test(value)) return false;
-  try {
-    const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) && !!url.hostname && !url.username && !url.password;
-  } catch { return false; }
-}
 export function validateDecision(payload) {
   const errors = {};
   if (!validIssueId(payload.capaId)) errors.capaId = 'Choose a visible CAPA.';
@@ -39,9 +33,10 @@ export function validateDecision(payload) {
   if (payload.type === 'NOT_RECURRENCE') {
     if (!REASON_CATEGORIES.includes(payload.reasonCategory)) errors.reasonCategory = 'Choose a reason category.';
   } else if (payload.reasonCategory != null) errors.reasonCategory = 'A category applies only to Not a recurrence.';
-  if (!Array.isArray(payload.evidenceLinks) || payload.evidenceLinks.length > 5 ||
-      payload.evidenceLinks.some((url) => !validEvidenceUrl(url))) {
-    errors.evidenceLinks = 'Enter at most 5 HTTP or HTTPS URLs without credentials (2000 characters each).';
+  if (!Array.isArray(payload.evidenceLinks) || payload.evidenceLinks.length > 5) {
+    errors.evidenceLinks = 'Enter at most 5 HTTPS URLs (2000 characters each).';
+  } else if (payload.evidenceLinks.some((url) => !validEvidenceUrl(url))) {
+    errors.evidenceLinks = 'Use an https:// link.';
   }
   return errors;
 }

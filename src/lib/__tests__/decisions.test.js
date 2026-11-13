@@ -14,13 +14,21 @@ test('requires a known category only for NOT_RECURRENCE', () => {
   expect(validateDecision({ ...payload, reasonCategory: 'OTHER' })).toHaveProperty('reasonCategory');
   expect(validateDecision({ ...payload, type: 'NOT_RECURRENCE', reasonCategory: 'something' })).toHaveProperty('reasonCategory');
 });
-test('permits up to five HTTP(S) evidence URLs and rejects malformed or credential URLs', () => {
+test('permits up to five HTTPS evidence URLs and rejects malformed or credential URLs', () => {
   expect(validateDecision({ ...payload, evidenceLinks: Array(5).fill('https://example.com/evidence') })).toEqual({});
   for (const evidenceLinks of [null, 'https://example.com', Array(6).fill('https://example.com'),
     ['javascript:alert(1)'], ['file:///test'], ['not a URL'], ['https:example.com'], ['https://example.com/a\nb'],
     ['https://user:pass@example.com'], [' https://example.com'], ['https://example.com/' + 'x'.repeat(2000)]]) {
     expect(validateDecision({ ...payload, evidenceLinks })).toHaveProperty('evidenceLinks');
   }
+});
+
+test.each([
+  'http://example.com/report', 'https://user:pass@example.com/x', 'javascript:alert(1)',
+  ' https://example.com', 'https://example.com ', 'https://', 'https:///report',
+  'https://example.com/a\nb', 'https://example.com/\u007fx',
+])('decision evidence requires HTTPS without repairing input: %j', (url) => {
+  expect(validateDecision({ ...payload, evidenceLinks: [url] })).toEqual({ evidenceLinks: 'Use an https:// link.' });
 });
 test('validates IDs, expected versions and action type', () => {
   for (const capaId of ['x:2', '../123', 123, '']) expect(validateDecision({ ...payload, capaId })).toHaveProperty('capaId');

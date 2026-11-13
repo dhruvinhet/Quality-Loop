@@ -6,6 +6,7 @@ import {
 import { invoke } from '@forge/bridge';
 import { FAILURE_MODES } from '../config/failureModes';
 import { validateCapture } from '../lib/capture';
+import { validEvidenceUrl } from '../lib/urls';
 
 const RECORD_TYPES = ['NC', 'CAPA'].map((value) => ({ label: value, value }));
 const asPayload = (data) => ({
@@ -109,6 +110,9 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
 
           <Label labelFor={getFieldId('effectivenessEvidenceUrl')}>Effectiveness evidence link</Label>
           <Textfield {...field('effectivenessEvidenceUrl')} defaultValue={getValues('effectivenessEvidenceUrl')} isDisabled={isSubmitting} maxLength={2000} />
+          {!validEvidenceUrl(record?.effectivenessEvidenceUrl) && validEvidenceUrl(record?.effectivenessEvidenceUrl, { allowHttp: true }) &&
+            <Text>Not a secure link (http)</Text>}
+          <Text>Use an https:// link.</Text>
           {error('effectivenessEvidenceUrl')}
         </>}
       </FormSection>
