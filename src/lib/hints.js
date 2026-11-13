@@ -70,5 +70,9 @@ export function selectHints(current, candidates) {
     if (id) ids.add(id);
     if (key) keys.add(key);
     return true;
-  }).slice(0, HINT_LIMIT).map(({ priority, ...hint }) => hint);
+  }).slice(0, HINT_LIMIT).map((rankedHint) => {
+    const hint = { ...rankedHint };
+    delete hint.priority;
+    return hint;
+  });
 }

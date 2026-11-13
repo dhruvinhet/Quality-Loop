@@ -17,7 +17,7 @@ When a quality engineer saves defect details on a nonconformance (NC), QualityLo
 1. **Capture.** An issue panel form saves the record type (NC or CAPA), part number, failure mode, supplier, line, dates, and an effectiveness-evidence link. Data lives in one Jira issue property with key `qualityloop`.
 2. **Match.** On save, JQL runs *as the viewing user* to find closed CAPAs with the same signature. Matching is deterministic and uses no AI.
 3. **Inspect evidence.** A card shows the matched fields, dates, and whether effectiveness evidence is present or absent. Only issues the viewer can browse are shown.
-4. **Approve follow-up.** The engineer chooses Confirm recurrence, Not a recurrence, or Raise effectiveness concern. The decision is stored in Forge app storage (built later).
+4. **Approve follow-up.** The engineer chooses Confirm recurrence, Not a recurrence, or Raise effectiveness concern. Decisions are stored in Forge Custom Entity Store with versioned pair state; confirmed follow-ups retain task and repair metadata.
 
 ### States (never blur them)
 

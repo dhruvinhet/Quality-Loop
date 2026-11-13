@@ -3,6 +3,8 @@ import { windowStart } from './match';
 import { lookbackDays as defaultLookbackDays } from '../config/matching';
 
 export function escapeJqlValue(value) {
+  // Control characters must be rejected rather than escaped into a JQL literal.
+  // eslint-disable-next-line no-control-regex
   if (typeof value !== 'string' || /[\u0000-\u001f\u007f]/.test(value)) throw new Error('Invalid JQL value.');
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }

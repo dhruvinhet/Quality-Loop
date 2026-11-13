@@ -51,7 +51,7 @@ pageDefine(resolver, 'prepareSample', [], async (context) => {
   // Keep the first standard type, but prefer Task even when it is on a later page.
   let startAt = 0;
   let type;
-  do {
+  for (;;) {
     const response = await userJira(route`/rest/api/3/issue/createmeta/${project.id}/issuetypes?startAt=${startAt}&maxResults=200`);
     if ([403, 404].includes(response.status)) return null;
     if (!response.ok) return { error: 'Jira issue creation metadata could not be read. Check your Create Issues permission. No sample issues were created.' };
@@ -60,7 +60,7 @@ pageDefine(resolver, 'prepareSample', [], async (context) => {
     type = selectSampleIssueType([...(type ? [type] : []), ...issueTypes]);
     startAt += issueTypes.length;
     if (type?.name === 'Task' || !issueTypes.length || startAt >= page.total) break;
-  } while (true);
+  }
   if (!type) return { error: 'No non-subtask issue type is available for you to create in this project. No sample issues were created.' };
   const links = await userJira(route`/rest/api/3/issueLinkType`);
   if (!links.ok) return { error: 'Jira link types could not be read. No sample issues were created.' };

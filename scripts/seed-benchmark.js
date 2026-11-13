@@ -70,12 +70,12 @@ async function main() {
   }
   let startAt = 0;
   let taskType;
-  do {
+  for (;;) {
     const page = await jira(`/rest/api/3/issue/createmeta/${project}/issuetypes?startAt=${startAt}&maxResults=200`);
     taskType = page.issueTypes?.find((type) => type.name === 'Task' && !type.subtask);
     startAt += page.issueTypes?.length ?? 0;
     if (taskType || !page.issueTypes?.length || startAt >= page.total) break;
-  } while (true);
+  }
   if (!taskType) throw new Error('The throwaway project needs a standard Task issue type.');
   const closedDate = new Date(Date.now() - 86400000 * 30).toISOString().slice(0, 10);
   for (let i = 0; i < count; i += 1) {

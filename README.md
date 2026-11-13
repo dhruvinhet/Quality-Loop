@@ -38,11 +38,23 @@ Decision loading uses at most five concurrent CAPA loads and shares issue, user 
 
 The repository's owner click/check sequence is in [T10.md](docs/tasks/T10.md).
 
+## Screenshots
+
+Screenshots will be captured from the development site later. These are planned
+file paths, not available images:
+
+| View | Placeholder path |
+|---|---|
+| NC capture and recurrence evidence | `docs/screenshots/issue-panel.png` |
+| Expanded hints and their disclaimer | `docs/screenshots/hints.png` |
+| Engineer decision and follow-up confirmation | `docs/screenshots/follow-up.png` |
+| Project sample walkthrough | `docs/screenshots/project-page.png` |
+
 ## Architecture
 
 ```mermaid
 flowchart LR
-  P["jira:issuePanel<br/>qualityloop-hello-world-issue-panel"] -->|invoke| R["resolver → index.handler<br/>loadCapture / saveCapture / findMatches / findHints<br/>getPanelAccess / getDecisions / recordDecision"]
+  P["jira:issuePanel<br/>qualityloop-issue-panel"] -->|invoke| R["resolver → index.handler<br/>loadCapture / saveCapture / findMatches / findHints<br/>getPanelAccess / getDecisions / recordDecision"]
   C["jira:issueContext<br/>qualityloop-evidence-context"] -->|read-only invoke| R
   R -->|asUser: read and write issue property| J[(Jira issue properties<br/>qualityloop)]
   R -->|asUser: enhanced JQL on property aliases| S["POST /rest/api/3/search/jql"]
@@ -60,7 +72,7 @@ flowchart LR
 
 - **Modules:** `jira:issuePanel`, `jira:issueContext`, `jira:projectPage`, `jira:adminPage`, `jira:entityPropertySet` (aliases `qlRecordType`, `qlPart`, `qlPartBase`, `qlFailureMode`, `qlSupplier`, `qlDetected`, `qlClosed`), and one deletion trigger subscribed to issue deletion and permanent project deletion. Project trash is not subscribed.
 - **Scopes:** `read:jira-work`, `write:jira-work`, `storage:app`, `read:jira-user`.
-- **Hosting configuration:** no external egress permission or LLM dependency is declared. Runs on Atlassian eligibility has not been verified here.
+- **Hosting configuration:** no external egress permission or LLM dependency is declared. On **13 Nov 2026**, `forge deploy -e development` (app version **6.15.0 and later**) reported that the app is **"eligible for the Runs on Atlassian program"** (owner-observed deployment output). This records the dated CLI eligibility result; no Marketplace badge or certification is claimed. See the [eligibility requirements and CLI checks](https://developer.atlassian.com/platform/forge/runs-on-atlassian-apps/).
 
 ## Permissions model
 
@@ -124,6 +136,48 @@ forge install -e development --site <site>.atlassian.net --product jira
 ```
 
 Coding-agent rules are in [AGENTS.md](AGENTS.md).
+
+### T28 panel update for existing installations
+
+The issue-panel module is now `qualityloop-issue-panel`, with an original SVG
+comparison motif bundled as `resource:qualityloop-icons;qualityloop.svg`. No
+external image host or new scope is required. Issue properties (`qualityloop`),
+decision/pair-state entities, resolver names and frontend resources retain their
+existing identities; none stores or looks up the former panel module key.
+
+Save any pending form edits before the owner deploys this update. Treat the
+renamed module as a new panel: reload already-open issue views, then choose
+**Apps → QualityLoop** again if needed. Old panel expansion/pinning is not
+migrated by this app. The exact Jira behavior for an already-open panel during a
+key rename is not documented and must be checked live.
+
+Owner commands for the installed development site (select its existing Jira
+installation when prompted):
+
+```powershell
+forge deploy -e development
+forge install --upgrade -e development --product jira
+```
+
+The [versioning rules](https://developer.atlassian.com/platform/forge/versions/)
+automatically apply minor updates within an installed major version. They do not
+list panel-key/icon changes as requiring a major version or an uninstall. The
+[install command](https://developer.atlassian.com/platform/forge/cli-reference/install/)
+supports upgrading the existing installation; do not uninstall/reinstall for this
+change. If it is already current after automatic deployment, reload and check the
+panel. There is no documented panel-key-specific migration guarantee.
+
+After development review and live testing, the owner must repeat the deployment
+and upgrade on **production**, selecting each existing production Jira site:
+
+```powershell
+forge deploy -e production
+forge install --upgrade -e production --product jira
+```
+
+For a genuinely fresh test site, deploy first, then run
+`forge install -e development --product jira` and select that site. Verify the
+custom icon and panel on both an existing issue and a newly opened issue.
 
 File-and-line evidence and every README correction are recorded in [T11.md](docs/tasks/T11.md).
 

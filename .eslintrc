@@ -1,4 +1,16 @@
 {
+  "extends": "eslint:recommended",
+  "env": {
+    "es2023": true,
+    "node": true,
+    "browser": true
+  },
+  "overrides": [
+    {
+      "files": ["**/__tests__/**/*.js"],
+      "env": { "jest": true }
+    }
+  ],
   "parserOptions": {
     "sourceType": "module",
     "ecmaVersion": 2023,
@@ -7,9 +19,12 @@
     }
   },
   "plugins": [
+    "react",
     "react-hooks"
   ],
   "rules": {
+    "react/jsx-uses-react": "error",
+    "react/jsx-uses-vars": "error",
     "react-hooks/rules-of-hooks": "error"
   }
 }

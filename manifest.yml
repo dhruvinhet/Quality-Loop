@@ -24,13 +24,13 @@ modules:
       filter:
         ignoreSelf: true
   jira:issuePanel:
-    - key: qualityloop-hello-world-issue-panel
+    - key: qualityloop-issue-panel
       resource: main
       resolver:
         function: resolver
       render: native
       title: QualityLoop
-      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      icon: resource:qualityloop-icons;qualityloop.svg
   jira:issueContext:
     - key: qualityloop-evidence-context
       resource: evidence-context
@@ -76,6 +76,8 @@ modules:
     - key: issue-deleted
       handler: index.onIssueDeleted
 resources:
+  - key: qualityloop-icons
+    path: static/icons
   - key: sample-page
     path: src/frontend/projectPage.jsx
   - key: data-page

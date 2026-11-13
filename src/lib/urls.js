@@ -5,6 +5,8 @@ export function evidenceUrlError(value, { allowHttp = false } = {}) {
   if (typeof value !== 'string') return invalid;
   const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value.trim());
   if (authority?.[1].includes('@')) return 'Remove the user name and password from the link.';
+  // Explicitly reject control characters; the URL parser silently strips some.
+  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return invalid;
   if (value.trim() !== value) return 'Remove spaces before or after the link.';
   const scheme = /^([a-z][a-z\d+.-]*):/i.exec(value)?.[1].toLowerCase();

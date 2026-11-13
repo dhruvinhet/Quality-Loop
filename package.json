@@ -1,9 +1,11 @@
 {
   "name": "qualityloop",
   "version": "1.0.0",
-  "main": "index.js",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "lint": "eslint --ext .js,.jsx src scripts",
     "test": "jest --runInBand",
@@ -13,6 +15,7 @@
   "devDependencies": {
     "esbuild": "^0.28.2",
     "eslint": "^8.56.0",
+    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^4.6.0",
     "jest": "^30.5.2"
   },
