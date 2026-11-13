@@ -128,20 +128,30 @@ export async function saveTaskMetadata(id, decision) {
 
 // Update only link completion on the current record, never replace it with a
 // stale history snapshot. Reconcile a lost transaction response by direct read.
-export async function saveTaskLinked(id, decision) {
-  const current = await readDecision(id);
-  if (!current || current.taskClaimId !== decision.taskClaimId || current.taskKey !== decision.taskKey) return false;
-  if (current.taskLinkedAt) return true;
-  try {
-    await kvs.transact().set(id, { ...current, taskLinkedAt: new Date().toISOString() }, { entityName: DECISION_ENTITY,
-      conditions: new Filter().and('taskClaimId', FilterConditions.equalTo(decision.taskClaimId))
-        .and('taskKey', FilterConditions.equalTo(decision.taskKey)).and('taskLinkedAt', FilterConditions.notExists()),
-    }).execute();
-    return true;
-  } catch (error) {
-    const saved = await readDecision(id);
-    if (saved?.taskClaimId !== decision.taskClaimId || saved?.taskKey !== decision.taskKey) return false;
-    if (saved.taskLinkedAt) return true;
-    throw error;
+export async function saveTaskLinked(id, decision, target = 'capa') {
+  const fields = { capa: 'taskLinkedAt', nc: 'taskNcLinkedAt', description: 'taskDescriptionAt' };
+  const field = fields[target];
+  if (!field) throw new Error('Invalid follow-up completion target.');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await readDecision(id);
+    if (!current || current.taskClaimId !== decision.taskClaimId || current.taskKey !== decision.taskKey) return false;
+    if (current[field]) return true;
+    let conditions = new Filter().and('taskClaimId', FilterConditions.equalTo(decision.taskClaimId))
+      .and('taskKey', FilterConditions.equalTo(decision.taskKey)).and(field, FilterConditions.notExists());
+    // Merge simultaneous completion writes, never erase another timestamp.
+    for (const other of Object.values(fields).filter((name) => name !== field)) {
+      conditions = conditions.and(other, current[other] ? FilterConditions.equalTo(current[other]) : FilterConditions.notExists());
+    }
+    try {
+      await kvs.transact().set(id, { ...current, [field]: new Date().toISOString() }, { entityName: DECISION_ENTITY, conditions }).execute();
+      return true;
+    } catch (error) {
+      const saved = await readDecision(id);
+      if (saved?.taskClaimId !== decision.taskClaimId || saved?.taskKey !== decision.taskKey) return false;
+      if (saved[field]) return true;
+      if (Object.values(fields).some((name) => saved?.[name] !== current[name])) continue;
+      throw error;
+    }
   }
+  return false;
 }

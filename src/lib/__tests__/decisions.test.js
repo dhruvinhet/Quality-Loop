@@ -63,15 +63,17 @@ test('SUPERSEDE corrects the explanation while preserving an established state',
   expect(() => nextState('SUPERSEDE', emptyPairState(), {})).toThrow();
   for (const state of ['CONFIRMED', 'NOT_RECURRENCE', 'CONCERN_RAISED']) expect(nextState('SUPERSEDE', { state }, {})).toBe(state);
 });
-test('confirmation for an unassigned CAPA ends with no assignee and omits the rejection fallback', () => {
-  const confirmation = followupConfirmation('QL', 'QL-42');
-  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Add a hidden QualityLoop marker to the new task so it can be identified later. Assignee: none (the CAPA has no assignee).");
+const followupOptions = { ncKey: 'QL-1', typeName: 'Task', description: 'Reviewed evidence' };
+const followupPrefix = "Create Task in QL: 'Effectiveness re-review: QL-42'. Set an ADF description: Reviewed evidence. Add Relates links to CAPA QL-42 and NC QL-1. Add a hidden QualityLoop marker to the new task so it can be identified later. Record the task key and description/link completion in QualityLoop. A description-only validation rejection may create the task without a description; use Verify link later to add it. ";
+test('confirmation for an unassigned CAPA lists all writes and omits the assignee rejection fallback', () => {
+  const confirmation = followupConfirmation('QL', 'QL-42', null, followupOptions);
+  expect(confirmation).toBe(followupPrefix + 'Assignee: none (the CAPA has no assignee).');
   expect(confirmation).not.toContain('If Jira rejects');
 });
 
 test('confirmation for an assigned CAPA shows only the display name and explains the rejection fallback', () => {
-  const confirmation = followupConfirmation('QL', 'QL-42', { accountId: 'private-owner-id', displayName: ' CAPA Owner ' });
-  expect(confirmation).toBe("Create task in QL: 'Effectiveness re-review: QL-42' and link it to QL-42. Add a hidden QualityLoop marker to the new task so it can be identified later. Intended assignee: CAPA Owner. If Jira rejects this assignee, the task is created unassigned.");
+  const confirmation = followupConfirmation('QL', 'QL-42', { accountId: 'private-owner-id', displayName: ' CAPA Owner ' }, followupOptions);
+  expect(confirmation).toBe(followupPrefix + 'Intended assignee: CAPA Owner. If Jira rejects this assignee, the task is created unassigned.');
   expect(confirmation).not.toContain('private-owner-id');
 });
 

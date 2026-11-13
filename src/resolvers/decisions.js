@@ -3,8 +3,9 @@ import { concernAllowed, followupConfirmation, validIssueId, validateDecision, n
 import { claimTask, commitDecision, getPairState, queryRecords, pairConfirmed, PAIR_ENTITY, DECISION_ENTITY, readDecision, saveTaskMetadata, saveTaskLinked } from './decisionStore';
 import { matchCaptures } from '../lib/match';
 import { issueCapture } from './evidence';
+import { selectSampleIssueType } from '../lib/sampleScenario';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
-import { FOLLOWUP_PROPERTY, followupMarker, hasCapaLink, isRecoveryTask, recoveryConfirmation, recoveryJql, recoveryMarkerKind, repairLinkConfirmation } from '../lib/followup';
+import { FOLLOWUP_PROPERTY, followupMarker, followupDescription, descriptionPreview, hasDescription, hasCapaLink, isRecoveryTask, recoveryConfirmation, recoveryJql, recoveryMarkerKind, repairLinkConfirmation } from '../lib/followup';
 
 const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
 async function getIssue(id) {
@@ -16,7 +17,7 @@ async function getIssue(id) {
 }
 async function getFollowupTask(id) {
   const response = await api.asUser().requestJira(
-    route`/rest/api/3/issue/${id}?fields=summary,project,status,assignee,created,issuelinks&properties=qualityloop-followup&failFast=true`, { headers });
+    route`/rest/api/3/issue/${id}?fields=summary,description,project,status,assignee,created,issuelinks&properties=qualityloop-followup&failFast=true`, { headers });
   if ([403, 404].includes(response.status)) return null;
   checkJira(response);
   return response.json();
@@ -39,6 +40,25 @@ const linkTask = (task, capa, type) => api.asUser().requestJira(route`/rest/api/
   method: 'POST', headers, body: JSON.stringify({ type: { id: type.id },
     outwardIssue: { id: task.id }, inwardIssue: { id: capa.id } }),
 });
+async function getStandardType(projectId) {
+  let startAt = 0, selected;
+  for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+    const response = await api.asUser().requestJira(
+      route`/rest/api/3/issue/createmeta/${projectId}/issuetypes?startAt=${startAt}&maxResults=200`, { headers });
+    if ([403, 404].includes(response.status)) return null;
+    checkJira(response);
+    const page = await response.json();
+    const types = page.issueTypes ?? [];
+    selected = selectSampleIssueType([...(selected ? [selected] : []), ...types]);
+    startAt += types.length;
+    if (selected?.name === 'Task' || !types.length || startAt >= page.total) return { type: selected };
+  }
+  return { error: 'Issue type metadata is incomplete. No follow-up was created.' };
+}
+const confirmationFor = ({ project, capa, nc, type, linkType, description }) => followupConfirmation(
+  project.key, capa.key, capa.fields?.assignee,
+  { ncKey: nc.key, typeName: type.name, description: descriptionPreview(description), linkAvailable: !!linkType },
+);
 async function canEdit(issueId) {
   const response = await api.asUser().requestJira(
     route`/rest/api/3/mypermissions?issueId=${issueId}&permissions=EDIT_ISSUES`, { headers });
@@ -158,7 +178,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
             if (record.taskKey && await readIssue(record.taskKey)) taskKey = record.taskKey;
             publicHistory.push({ id: record.id, type: record.type, reason: record.reason,
               reasonCategory: record.reasonCategory, evidenceLinks: record.evidenceLinks,
-              createdAt: record.createdAt, authorDisplayName, ...(taskKey ? { taskKey, taskLinked: !!record.taskLinkedAt } : {}),
+              createdAt: record.createdAt, authorDisplayName, ...(taskKey ? { taskKey, taskLinked: !!record.taskLinkedAt && !!record.taskNcLinkedAt && !!record.taskDescriptionAt } : {}),
               ...(record.taskClaimId && !record.taskKey ? { followupUnconfirmed: true } : {}) });
           }
           budget.check();
@@ -216,7 +236,8 @@ export function registerDecisionResolvers({ define, findMatches }) {
     const prefix = `${pairKey(payload.capaId, issueId)}:`;
     if (typeof payload.decisionId !== 'string' || !payload.decisionId.startsWith(prefix) || payload.decisionId.length > 160) return null;
     const capa = await getIssue(payload.capaId);
-    if (!capa || !await getIssue(issueId)) return null;
+    const nc = await getIssue(issueId);
+    if (!capa || !nc) return null;
     if (!await canEdit(issueId)) return deniedEdit();
     const decision = await readDecision(payload.decisionId);
     if (!decision || decision.type !== 'CONCERN' || decision.capaId !== payload.capaId ||
@@ -225,18 +246,23 @@ export function registerDecisionResolvers({ define, findMatches }) {
     if (!project?.id || !project.key) return { error: 'Recorded. The CAPA project could not be read.' };
     if (mode === 'repair') {
       if (!decision.taskClaimId || !decision.taskKey) return { message: 'Refresh history; this concern has no recorded follow-up task.' };
-      return { capa, decision, project, decisionId: payload.decisionId };
+      return { capa, nc, decision, project, decisionId: payload.decisionId };
     }
     if (mode === 'recovery') {
       if (!decision.taskClaimId || decision.taskKey) return { message: 'Refresh history; this concern no longer has an unconfirmed follow-up.' };
       if (!Number.isFinite(Date.parse(decision.taskClaimedAt))) {
         return { message: 'The follow-up claim time was not recorded for this older decision. Check Jira manually; another task will not be created.' };
       }
-      return { capa, decision, project, decisionId: payload.decisionId };
+      return { capa, nc, decision, project, decisionId: payload.decisionId };
     }
     if (decision.taskClaimId || decision.taskKey) return { message: 'Recorded. Follow-up was already attempted; check the history and Jira before creating another task.' };
     if (!await canCreate(project.id)) return { message: noCreateMessage(project.key) };
-    return { capa, decision, project, confirmation: followupConfirmation(project.key, capa.key, capa.fields?.assignee) };
+    const metadata = await getStandardType(project.id);
+    if (!metadata || metadata.error) return metadata;
+    if (!metadata.type) return { error: 'No non-subtask issue type is available. No follow-up was created.' };
+    const plan = { capa, nc, decision, project, type: metadata.type, linkType: await getRelatesType(),
+      description: followupDescription(decision, nc, capa), decisionId: payload.decisionId };
+    return { ...plan, confirmation: confirmationFor(plan) };
   }
   define('prepareConcernTask', ['capaId', 'decisionId'], async (issueId, payload, context) => {
     const result = await taskContext(issueId, payload, context);
@@ -336,8 +362,70 @@ export function registerDecisionResolvers({ define, findMatches }) {
       return { error: 'This task has a different QualityLoop marker. Check Jira manually; no link was written.' };
     }
     const writeMarker = [1, 2].includes(result.decision.taskMarkerVersion) && !hasMarker;
-    const confirmation = repairLinkConfirmation(task.key, result.capa.key, { writeMarker, legacy: !hasMarker && !writeMarker });
-    return { ...result, task, writeMarker, confirmation };
+    const description = followupDescription(result.decision, result.nc, result.capa);
+    const linkType = await getRelatesType();
+    const confirmation = repairLinkConfirmation(task.key, result.capa.key, { ncKey: result.nc.key,
+      description: descriptionPreview(description), linkAvailable: !!linkType, writeMarker, legacy: !hasMarker && !writeMarker });
+    return { ...result, task, description, linkType, writeMarker, confirmation };
+  }
+
+  // Re-read all three issues asUser immediately before EACH Jira write. Never
+  // reuse an authorization snapshot from the proposal or an earlier link write.
+  async function freshFollowup(plan) {
+    const [task, capa, nc] = await Promise.all([getFollowupTask(plan.task.key), getIssue(plan.decision.capaId), getIssue(plan.decision.issueId)]);
+    if (!task || !capa || !nc) return null;
+    if (!await canEdit(plan.decision.issueId)) return deniedEdit();
+    if (task.key !== plan.task.key || capa.key !== plan.capa.key || nc.key !== plan.nc.key ||
+        String(task.id) !== String(plan.task.id) || !Array.isArray(task.fields?.issuelinks)) {
+      return { error: 'The follow-up references or links changed. Refresh history before continuing.' };
+    }
+    if (Object.hasOwn(task.properties ?? {}, FOLLOWUP_PROPERTY) && !recoveryMarkerKind(task, plan.decisionId, plan.decision)) {
+      return { error: 'The task marker could not be verified. Check Jira before continuing.' };
+    }
+    return { task, capa, nc };
+  }
+
+  async function completeFollowup(plan, repair = false) {
+    const limits = [];
+    const partial = (reason) => ({ message: `Recorded. ${repair ? `Follow-up ${plan.task.key} remains` : `Created ${plan.task.key}`} with limits: ${reason}. Use Verify link to finish the description and both links.`, taskKey: plan.task.key });
+    let fresh = await freshFollowup(plan);
+    if (!fresh || fresh.error) return fresh;
+    if (plan.writeMarker) {
+      if (!await canEdit(plan.decision.issueId)) return deniedEdit();
+      if (!await setFollowupMarker(fresh.task.id, plan.decisionId, plan.decision)) return partial('the marker could not be written');
+      fresh = await freshFollowup(plan);
+      if (!fresh || fresh.error) return fresh;
+      if (!recoveryMarkerKind(fresh.task, plan.decisionId, plan.decision)) return partial('the marker could not be verified');
+    }
+    if (repair && !hasDescription(fresh.task)) {
+      if (descriptionPreview(followupDescription(plan.decision, fresh.nc, fresh.capa)) !== descriptionPreview(plan.description)) {
+        return { error: 'The proposed description changed. Open Verify link again.' };
+      }
+      try {
+        const response = await api.asUser().requestJira(route`/rest/api/3/issue/${fresh.task.id}`, {
+          method: 'PUT', headers, body: JSON.stringify({ fields: { description: plan.description } }),
+        });
+        if (!response.ok) limits.push('the description could not be written');
+      } catch { limits.push('the description write could not be confirmed'); }
+      fresh = await freshFollowup(plan);
+      if (!fresh || fresh.error) return fresh;
+    }
+    if (hasDescription(fresh.task)) {
+      if (!await saveTaskLinked(plan.decisionId, plan.decision, 'description')) limits.push('description completion could not be recorded');
+    } else limits.push('the description is missing');
+    for (const target of ['capa', 'nc']) {
+      fresh = await freshFollowup(plan);
+      if (!fresh || fresh.error) return fresh;
+      if (!hasCapaLink(fresh.task, fresh[target])) {
+        if (!plan.linkType) { limits.push(`the ${target.toUpperCase()} link is missing because Relates is unavailable`); continue; }
+        try {
+          const linked = await linkTask(fresh.task, fresh[target], plan.linkType);
+          if (!linked.ok) { limits.push(`the ${target.toUpperCase()} link could not be written`); continue; }
+        } catch { limits.push(`the ${target.toUpperCase()} link write could not be confirmed`); continue; }
+      }
+      if (!await saveTaskLinked(plan.decisionId, plan.decision, target)) limits.push(`${target.toUpperCase()} link completion could not be recorded`);
+    }
+    return limits.length ? partial(limits.join('; ')) : { complete: true, task: fresh.task };
   }
   define('prepareRepairLink', ['capaId', 'decisionId'], async (issueId, payload, context) => {
     const result = await repairContext(issueId, payload, context);
@@ -347,60 +435,37 @@ export function registerDecisionResolvers({ define, findMatches }) {
     const result = await repairContext(issueId, payload, context);
     if (!result || result.error || result.message) return result;
     if (payload.confirmation !== result.confirmation) return { error: 'The proposed verification changed. Open Verify link again.' };
-    const { task, capa, decision } = result;
-    // Resolve the site-specific link ID first, then re-read both issues immediately
-    // before the confirmed write. Jira also treats a duplicate link as success.
-    const type = await getRelatesType();
-    if (!type) return { error: 'The Relates link type is unavailable. Check Jira before repairing.' };
     const fresh = await repairContext(issueId, payload, context);
     if (!fresh || fresh.error || fresh.message) return fresh;
-    if (fresh.confirmation !== payload.confirmation || String(fresh.task.id) !== String(task.id) || String(fresh.capa.id) !== String(capa.id)) {
+    if (fresh.confirmation !== payload.confirmation || String(fresh.task.id) !== String(result.task.id) || String(fresh.capa.id) !== String(result.capa.id)) {
       return { error: 'The proposed verification changed. Open Verify link again.' };
     }
-    if (fresh.writeMarker && !await setFollowupMarker(task.id, payload.decisionId, fresh.decision)) return null;
-    if (!hasCapaLink(fresh.task, fresh.capa)) {
-      const linked = await linkTask(fresh.task, fresh.capa, type);
-      if (!linked.ok) return { error: 'Link verification could not finish. Check Jira and try Verify link again.' };
-    }
-    if (!await saveTaskLinked(payload.decisionId, decision)) return { error: 'The follow-up metadata changed. Refresh history before continuing.' };
-    return { message: 'The follow-up link is verified and recorded.' };
+    const completed = await completeFollowup(fresh, true);
+    return completed?.complete ? { message: 'The follow-up description and both links are verified and recorded.' } : completed;
   });
 
   define('createConcernTask', ['capaId', 'decisionId', 'confirmation'], async (issueId, payload, context) => {
     const result = await taskContext(issueId, payload, context);
     if (!result || result.error || result.message) return result;
-    const { capa, decision, project, confirmation } = result;
+    const { capa, decision, project, confirmation, type: taskType, description } = result;
     if (payload.confirmation !== confirmation) return { error: 'Recorded. The proposed write changed. Open the confirmation again.' };
     let claimed;
     let taskKey;
     try {
-      // Resolve project-specific Task and site-specific relates-to IDs; never
-      // assume issue type or link type numeric IDs are shared across Jira sites.
-      let startAt = 0;
-      let taskType;
-      do {
-        const response = await api.asUser().requestJira(
-          route`/rest/api/3/issue/createmeta/${project.id}/issuetypes?startAt=${startAt}&maxResults=200`, { headers });
-        if ([403, 404].includes(response.status)) return null;
-        if (!response.ok) return { error: `Recorded. Task metadata could not be read (HTTP ${response.status}).` };
-        const page = await response.json();
-        taskType = page.issueTypes?.find((type) => type.name === 'Task' && !type.subtask);
-        startAt += page.issueTypes?.length ?? 0;
-        if (taskType || !page.issueTypes?.length || startAt >= page.total) break;
-      } while (true);
-      if (!taskType) return { error: `Recorded. No standard Task type is available in ${project.key}. Ask the CAPA owner to review.` };
-      const linkType = await getRelatesType();
-      if (!linkType) return { error: 'Recorded. The relates to link type is unavailable. Ask the CAPA owner to review.' };
       // Re-authorise after metadata reads, before claiming and writing.
       const freshCapa = await getIssue(payload.capaId);
-      if (!freshCapa || !await getIssue(issueId)) return null;
+      const freshNc = await getIssue(issueId);
+      if (!freshCapa || !freshNc) return null;
       if (freshCapa.fields?.project?.id !== project.id || freshCapa.key !== capa.key) {
         return { error: 'Recorded. The CAPA project or key changed. Open a new follow-up confirmation.' };
       }
       // Keep the identity recheck even when two assignees share a display name.
       if (freshCapa.fields?.assignee?.accountId !== capa.fields?.assignee?.accountId ||
-          followupConfirmation(project.key, capa.key, freshCapa.fields?.assignee) !== confirmation) {
+          confirmationFor({ ...result, capa: freshCapa }) !== confirmation) {
         return { error: 'Recorded. The intended assignee changed. Open a new follow-up confirmation.' };
+      }
+      if (confirmationFor({ ...result, nc: freshNc, description: followupDescription(decision, freshNc, freshCapa) }) !== confirmation) {
+        return { error: 'Recorded. The proposed description changed. Open a new follow-up confirmation.' };
       }
       if (!await canEdit(issueId)) return deniedEdit();
       if (!await canCreate(project.id)) return { message: noCreateMessage(project.key) };
@@ -408,17 +473,33 @@ export function registerDecisionResolvers({ define, findMatches }) {
       if (!claimed) return { message: 'Recorded. Follow-up was already attempted; check Jira before creating another task.' };
       const intendedAssignee = freshCapa.fields?.assignee;
       const fields = { project: { id: project.id }, issuetype: { id: taskType.id }, summary: `Effectiveness re-review: ${capa.key}`,
-        assignee: intendedAssignee?.accountId ? { accountId: intendedAssignee.accountId } : null };
+        description, assignee: intendedAssignee?.accountId ? { accountId: intendedAssignee.accountId } : null };
       const properties = [{ key: FOLLOWUP_PROPERTY, value: followupMarker(payload.decisionId, claimed) }];
-      const create = () => api.asUser().requestJira(route`/rest/api/3/issue`, {
-        method: 'POST', headers, body: JSON.stringify({ fields, properties }),
-      });
-      let response = await create();
-      // Retry only a definitive validation rejection of assignee. Never retry
+      const create = async () => {
+        const currentCapa = await getIssue(payload.capaId), nc = await getIssue(issueId);
+        if (!currentCapa || !nc) return null;
+        if (currentCapa.fields?.assignee?.accountId !== freshCapa.fields?.assignee?.accountId ||
+            confirmationFor({ ...result, capa: currentCapa, nc, description: followupDescription(decision, nc, currentCapa) }) !== confirmation) {
+          throw new Error('Follow-up proposal changed.');
+        }
+        return api.asUser().requestJira(route`/rest/api/3/issue`, {
+          method: 'POST', headers, body: JSON.stringify({ fields, properties }),
+        });
+      };
+      let response;
+      // Retry only definitive assignee/description validation rejections. Never retry
       // an ambiguous response, transport error, 429, 5xx, or a general denial.
-      if (response.status === 400 && intendedAssignee?.accountId) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        response = await create();
+        if (!response) return null;
+        if (response.status !== 400) break;
         const rejected = await response.json();
-        if (rejected.errors?.assignee) { fields.assignee = null; response = await create(); }
+        const keys = Object.keys(rejected.errors ?? {});
+        if (!keys.length || rejected.errorMessages?.length || keys.some((key) => !['assignee', 'description'].includes(key))) break;
+        let changed = false;
+        if (rejected.errors.assignee && fields.assignee) { fields.assignee = null; changed = true; }
+        if (rejected.errors.description && fields.description) { delete fields.description; changed = true; }
+        if (!changed) break;
       }
       if ([403, 404].includes(response.status)) return null;
       if (!response.ok) return { error: `Recorded. Task creation returned HTTP ${response.status}. Check Jira before trying another follow-up.` };
@@ -427,24 +508,18 @@ export function registerDecisionResolvers({ define, findMatches }) {
       if (await saveTaskMetadata(payload.decisionId, { ...claimed, taskKey }) === false) {
         return { error: 'Recorded. Follow-up metadata changed. Check the decision history before continuing.' };
       }
-      // The server-generated task ID is still checked asUser before linking.
+      // Record the created key before any optional description/link work.
       const createdTask = await getFollowupTask(task.id);
-      if (!createdTask || !await getIssue(payload.capaId)) return null;
-      if (!Object.hasOwn(createdTask.properties ?? {}, FOLLOWUP_PROPERTY)) {
-        // Jira may ignore create-time properties. Only repair a verified absence;
-        // a present conflicting marker must never be overwritten.
-        if (!await setFollowupMarker(task.id, payload.decisionId, claimed)) return null;
-      } else if (!recoveryMarkerKind(createdTask, payload.decisionId, claimed)) {
+      if (!createdTask || !await getIssue(payload.capaId) || !await getIssue(issueId)) return null;
+      const hasMarker = Object.hasOwn(createdTask.properties ?? {}, FOLLOWUP_PROPERTY);
+      if (hasMarker && !recoveryMarkerKind(createdTask, payload.decisionId, claimed)) {
         return { error: 'Recorded. The new task marker could not be verified. Check Jira before continuing.' };
       }
-      const linked = await linkTask(task, capa, linkType);
-      if (!linked.ok) return { error: 'Recorded. Follow-up linking could not finish. Check Jira before creating another task.' };
-      if (!await saveTaskLinked(payload.decisionId, { ...claimed, taskKey })) {
-        return { error: 'Recorded. Link completion could not be recorded. Refresh history and use Verify link.' };
-      }
-      const assignee = createdTask.fields?.assignee;
+      const completed = await completeFollowup({ ...result, task: createdTask, decision: { ...claimed, taskKey }, writeMarker: !hasMarker });
+      if (!completed?.complete) return completed;
+      const assignee = completed.task.fields?.assignee;
       const ownership = assignee?.accountId ? `assigned to ${assignee.displayName?.trim() || "the CAPA's current assignee"}` : 'unassigned';
-      return { message: `Recorded. Created ${taskKey} and linked it to ${capa.key}; ${ownership}.` };
+      return { message: `Recorded. Created ${taskKey} and linked it to ${capa.key} and ${result.nc.key}; ${ownership}.` };
     } catch {
       console.error('QualityLoop concern follow-up failed.');
       return { error: 'Recorded. Follow-up could not finish. Check Jira before creating another task.' };

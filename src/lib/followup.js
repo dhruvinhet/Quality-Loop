@@ -1,7 +1,33 @@
 import { escapeJqlValue } from './matchJql';
+import { TYPE_LABELS } from './decisions';
+import { validEvidenceUrl } from './urls';
 
 export const followupSummary = (capaKey) => `Effectiveness re-review: ${capaKey}`;
 export const FOLLOWUP_PROPERTY = 'qualityloop-followup';
+export function followupDescription(decision, nc, capa) {
+  const text = (value, href) => ({ type: 'text', text: String(value),
+    ...(href ? { marks: [{ type: 'link', attrs: { href } }] } : {}) });
+  const paragraph = (...content) => ({ type: 'paragraph', content });
+  const ncUrl = new URL(`/browse/${encodeURIComponent(nc.key)}`, nc.self).href;
+  if (!validEvidenceUrl(ncUrl)) throw new Error('NC URL is unavailable.');
+  return { type: 'doc', version: 1, content: [
+    paragraph(text(`Decision: ${TYPE_LABELS[decision.type] ?? decision.type}`)),
+    paragraph(text('NC: '), text(`${nc.key}: ${nc.fields?.summary ?? ''}`, ncUrl)),
+    paragraph(text(`CAPA: ${capa.key}`)),
+    paragraph(text(`Engineer reason: ${decision.reason}`)),
+    ...(decision.reasonCategory ? [paragraph(text(`Reason category: ${decision.reasonCategory}`))] : []),
+    ...(decision.evidenceLinks ?? []).filter((url) => validEvidenceUrl(url)).map((url) => paragraph(text(url, url))),
+    paragraph(text(`Open the QualityLoop panel on ${nc.key} to see the full history.`)),
+  ] };
+}
+export const descriptionPreview = (description) => description.content.map((p) => p.content.map((node) => node.text).join('')).join('\n');
+export function hasDescription(task) {
+  const value = task?.fields?.description;
+  if (value == null) return false;
+  if (typeof value === 'string') return !!value.trim();
+  if (value.type !== 'doc') return true; // Unknown content is never overwritten as "empty".
+  return value.content?.some((p) => p.type !== 'paragraph' || p.content?.some((node) => node.type !== 'text' || node.text?.trim())) === true;
+}
 export const legacyMarkerWarning = 'This task has no QualityLoop marker; confirm only if you know it is the follow-up task.';
 const legacyMarker = (decisionId, decision) => ({ schemaVersion: 1, decisionId,
   capaId: decision.capaId, ncId: decision.issueId, claimedAt: decision.taskClaimedAt });
@@ -35,8 +61,9 @@ export function hasCapaLink(task, capa) {
       (String(issue.id) === String(capa.id) || issue.key === capa.key))) === true;
 }
 
-export function repairLinkConfirmation(taskKey, capaKey, { writeMarker = false, legacy = false } = {}) {
-  return `Check that ${taskKey} is linked to the CAPA; add a Relates link only if it is missing. CAPA: ${capaKey}. Then record link completion.`
+export function repairLinkConfirmation(taskKey, capaKey, { ncKey, description, linkAvailable = true, writeMarker = false, legacy = false } = {}) {
+  return `Verify ${taskKey}. Set its ADF description only if empty: ${description}. Check Relates links to CAPA ${capaKey} and NC ${ncKey}; add each link only if missing. Record description and both link completions.`
+    + (!linkAvailable ? ' Enable the Relates link type; missing links cannot be repaired until it is available.' : '')
     + (writeMarker ? ` Set the ${FOLLOWUP_PROPERTY} marker property on ${taskKey} for this decision.` : '')
     + (legacy ? ` ${legacyMarkerWarning}` : '');
 }

@@ -223,6 +223,8 @@ test('link completion is conditional on the saved key and claim and preserves ne
     { property: 'taskClaimId', condition: 'EQUAL_TO', values: ['claim'] },
     { property: 'taskKey', condition: 'EQUAL_TO', values: ['QL-3'] },
     { property: 'taskLinkedAt', condition: 'NOT_EXISTS', values: [true] },
+    { property: 'taskNcLinkedAt', condition: 'NOT_EXISTS', values: [true] },
+    { property: 'taskDescriptionAt', condition: 'NOT_EXISTS', values: [true] },
   ]);
   expect(await saveTaskLinked('d', decision)).toBe(true);
   expect(transact).toHaveBeenCalledTimes(1);
@@ -242,4 +244,16 @@ test('a lost link-completion transaction response is reconciled by its separate 
   transact.mockImplementation(async (request) => { await atomic(request); throw new Error('Response lost'); });
   expect(await saveTaskLinked('d', decision)).toBe(true);
   expect(records.get('decision/d').taskLinkedAt).toEqual(expect.any(String));
+});
+
+test('simultaneous description/CAPA/NC completions merge without dropping timestamps or other metadata', async () => {
+  const decision = { taskClaimId: 'claim', taskKey: 'QL-3' };
+  records.set('decision/d', { ...decision, reason: 'Keep this reason', taskMarkerToken: 'keep-token' });
+  expect(await Promise.all(['description', 'capa', 'nc'].map((target) => saveTaskLinked('d', decision, target))))
+    .toEqual([true, true, true]);
+  expect(records.get('decision/d')).toMatchObject({ reason: 'Keep this reason', taskMarkerToken: 'keep-token',
+    taskLinkedAt: expect.any(String), taskNcLinkedAt: expect.any(String), taskDescriptionAt: expect.any(String) });
+  const count = transact.mock.calls.length;
+  expect(await saveTaskLinked('d', decision, 'nc')).toBe(true);
+  expect(transact).toHaveBeenCalledTimes(count);
 });

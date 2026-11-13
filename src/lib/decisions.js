@@ -67,9 +67,13 @@ export function confirmedFromHistory(history) {
     .find(({ type }) => ['CONFIRM', 'NOT_RECURRENCE'].includes(type));
   return decisive ? decisive.type === 'CONFIRM' : false;
 }
-export function followupConfirmation(project, capaKey, assignee) {
+export function followupConfirmation(project, capaKey, assignee, { ncKey, typeName, description, linkAvailable = true } = {}) {
   const ownership = assignee?.accountId
     ? `Intended assignee: ${assignee.displayName?.trim() || "the CAPA's current assignee"}. If Jira rejects this assignee, the task is created unassigned.`
     : 'Assignee: none (the CAPA has no assignee).';
-  return `Create task in ${project}: 'Effectiveness re-review: ${capaKey}' and link it to ${capaKey}. Add a hidden QualityLoop marker to the new task so it can be identified later. ${ownership}`;
+  return `Create ${typeName} in ${project}: 'Effectiveness re-review: ${capaKey}'. Set an ADF description: ${description}.`
+    + (linkAvailable ? ` Add Relates links to CAPA ${capaKey} and NC ${ncKey}.`
+      : ' Enable the Relates link type, or the task will be created unlinked. Use Verify link later to add both links.')
+    + ' Add a hidden QualityLoop marker to the new task so it can be identified later. Record the task key and description/link completion in QualityLoop.'
+    + ` A description-only validation rejection may create the task without a description; use Verify link later to add it. ${ownership}`;
 }

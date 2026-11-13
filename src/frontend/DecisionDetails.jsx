@@ -167,7 +167,7 @@ export default function DecisionDetails({ match, data, readOnly, canRecover = !r
         <ModalHeader><ModalTitle>Confirm follow-up task</ModalTitle></ModalHeader>
         <ModalBody><Stack space="space.100"><Text>The concern is recorded. Confirm these Jira writes:</Text><Text>{followup.confirmation}</Text></Stack></ModalBody>
         <ModalFooter><Button isDisabled={busy} onClick={() => setFollowup(null)}>Keep decision only</Button>
-          <Button appearance="primary" isDisabled={busy} onClick={createTask}>{busy ? 'Creating…' : 'Create task and link'}</Button></ModalFooter>
+          <Button appearance="primary" isDisabled={busy} onClick={createTask}>{busy ? 'Creating…' : 'Create follow-up'}</Button></ModalFooter>
       </Modal>}
       {recovery && <Modal onClose={() => { if (!busy) setRecovery(null); }}>
         <ModalHeader><ModalTitle>Confirm follow-up recovery</ModalTitle></ModalHeader>

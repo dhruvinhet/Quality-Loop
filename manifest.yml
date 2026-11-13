@@ -142,6 +142,10 @@ app:
             type: string
           taskLinkedAt:
             type: string
+          taskNcLinkedAt:
+            type: string
+          taskDescriptionAt:
+            type: string
           taskMarkerVersion:
             type: integer
           taskMarkerToken:
