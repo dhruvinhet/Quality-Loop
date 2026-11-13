@@ -6,8 +6,10 @@ import { backfillPair, recordPage } from './cleanupStore';
 import { pageDefine, readTicket, requireAdmin, saveTicket, userJira, validCursor } from './pageUtils';
 import { removableSample } from '../lib/sampleScenario';
 import { HEALTH_PREFIX, initialHealth, withHealthTicket, scanHealthPage, removeHealthPage } from './dataHealthStore';
+import { registerFailureModeAdmin } from './failureModes';
 
 const resolver = new Resolver();
+registerFailureModeAdmin(resolver);
 // Jira 404 means missing OR unbrowsable. It is never proof of deletion.
 const existence = (id) => userJira(route`/rest/api/3/issue/${id}?fields=id`);
 

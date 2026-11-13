@@ -70,7 +70,7 @@ flowchart LR
   AR -->|visible-record backfill| K
 ```
 
-- **Modules:** `jira:issuePanel`, `jira:issueContext`, `jira:projectPage`, `jira:adminPage`, `jira:entityPropertySet` (aliases `qlRecordType`, `qlPart`, `qlPartBase`, `qlFailureMode`, `qlSupplier`, `qlDetected`, `qlClosed`), and one deletion trigger subscribed to issue deletion and permanent project deletion. Project trash is not subscribed.
+- **Modules:** `jira:issuePanel`, `jira:issueContext`, `jira:projectPage`, `jira:adminPage`, `jira:entityPropertySet` (aliases `qlRecordType`, `qlPart`, `qlPartBase`, `qlFailureMode`, `qlSupplier`, `qlSupplierNorm`, `qlDetected`, `qlClosed`), and one deletion trigger subscribed to issue deletion and permanent project deletion. Project trash is not subscribed.
 - **Scopes:** `read:jira-work`, `write:jira-work`, `storage:app`, `read:jira-user`.
 - **Hosting configuration:** no external egress permission or LLM dependency is declared. On **13 Nov 2026**, `forge deploy -e development` (app version **6.15.0 and later**) reported that the app is **"eligible for the Runs on Atlassian program"** (owner-observed deployment output). This records the dated CLI eligibility result; no Marketplace badge or certification is claimed. See the [eligibility requirements and CLI checks](https://developer.atlassian.com/platform/forge/runs-on-atlassian-apps/).
 
@@ -84,11 +84,58 @@ flowchart LR
 
 ## Matching rules
 
+### Site failure-mode catalogue
+
+The default seed in `src/config/failureModes.js` follows the synthetic automotive
+plant story used by the evaluation: FM-01 Crack, FM-02 Burr, FM-03 Dimension out
+of tolerance, FM-04 Porosity, FM-05 Corrosion, FM-06 Missing feature and FM-07
+Surface damage. FM-99 Other remains the app's additional default code. The DEMO
+uses FM-01, FM-07 and FM-03 from this seed; CAPA-B's story is handling-pad surface
+damage. Frozen evaluation JSON has not changed. Existing sample narratives are
+not rewritten; recreate a disposable sample if you want the updated story.
+
+Jira administrators can open **QualityLoop data → Failure-mode catalogue** to
+list, add, rename labels, deactivate or reactivate codes. The catalogue is
+site-wide across projects, stored as `{ version, modes: [{ code, label, active }] }`
+at installation-scoped KVS key `fm-catalog:site`. Only global **Administer Jira**
+(`ADMINISTER`) permits changes; project administration alone does not. Codes
+are trimmed/uppercased, must match `^[A-Z0-9][A-Z0-9_-]{0,31}$`, and cannot be
+deleted or reused. The 50-code limit includes inactive codes. The seed is used
+when the KVS key is absent; a storage error or malformed catalogue blocks writes
+instead of substituting defaults. Refresh open issue panels after editing.
+
+Capture selects and both client/server validation use active codes from the
+catalogue. New records save canonical codes, not labels. Cards show the active
+label with its code and fall back to the stored code when inactive or unknown.
+Existing records with deactivated codes still load, display and participate in
+matching; editing one requires selecting an active code before saving. Changing
+a label does not change a signature or rewrite existing records. A stale open
+form may be rejected by the server after deactivation; reload it to select a
+current code. Concurrent admin edits use a lock and revision check; refresh after
+a conflict or uncertain save rather than overwriting another edit.
+
+### Normalisation and migration
+
 1. Normalisation trims whitespace, collapses inner whitespace and converts to uppercase. Part numbers additionally follow the named rule **spaces around hyphens are removed**: `SM-6604 -A` and `SM-6604-A` are equal after normalisation. This is deterministic formatting normalisation, not fuzzy matching; failure-mode text normalisation is unchanged. `partOriginal` preserves the input part number, and cards use it for display.
 2. The current revision pattern is a trailing `-<1–2 letters>` suffix of the normalised part. An otherwise eligible different revision of the same base part, with the same failure mode, is a **related revision**, never an exact match.
 3. A strong or related-revision match needs a recorded QualityLoop closed date between 1 and 365 days before the NC's detection date. Jira status is not a matching gate.
 4. Supplier and line do not affect strong or related-revision matches. Supplier can affect **Other related records**; line supplies supporting facts.
 5. Strong and related-revision matching use no fuzzy comparisons. Limited, labelled hints can surface some part-number typos; they do not cover every typo.
+
+6. Capture schema **v3** stores `supplierNorm` and `lineNorm`: trim, collapse
+   whitespace, uppercase. Supplier/line equality and supporting facts use these
+   normalised values while displaying the original strings. The matcher computes
+   them from originals in memory for every record, including schema v1/v2 and
+   direct property edits with stale stored norms. Blank values are not evidence
+   of equality. `failureMode` is also saved and queried as a canonical code.
+
+JQL on `qlSupplierNorm` (`supplierNorm`) only covers records saved after this
+change. Older CAPAs can be missed by the supplier-based **Other related** search
+until re-saved; the evidence view discloses this limit. There is no automatic
+backfill or global migration. Strong/related-revision matching does not depend
+on supplier or line. The legacy `qlSupplier` alias is retained; the application
+now uses `qlSupplierNorm` for that search branch. Old noncanonical failure codes
+written directly into Jira can still be missed by JQL until re-saved canonically.
 
 Existing stored CAPAs keep their old `partNorm` and `partBase` until re-saved; the matcher re-normalises `partOriginal` in memory once a record is fetched, but JQL on `qlPartBase` can still miss older records saved with a trailing-space base, so open and re-save affected CAPAs to refresh those stored fields.
 

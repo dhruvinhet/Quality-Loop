@@ -11,9 +11,11 @@ jest.mock('@forge/api', () => ({
   default: { asUser: jest.fn() },
   route: (strings, ...values) => strings.reduce((text, part, index) => text + part + (values[index] ?? ''), ''),
 }));
+jest.mock('@forge/kvs', () => ({ kvs: { get: jest.fn() } }));
 
 // Explicit require keeps mocks registered before module evaluation with esbuild.
 const api = require('@forge/api').default;
+const { kvs } = require('@forge/kvs');
 const { handler } = require('../index');
 
 const requestJira = jest.fn();
@@ -23,12 +25,63 @@ const response = (status, value) => ({ status, ok: status >= 200 && status < 300
 
 beforeEach(() => {
   jest.clearAllMocks();
+  kvs.get.mockReset().mockResolvedValue(undefined);
   requestJira.mockReset();
   requestJira.mockResolvedValue(response(200, { issues: [], isLast: true }));
   api.asUser.mockReturnValue({ requestJira });
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => jest.restoreAllMocks());
+
+test('getFailureModes returns the seed when KVS is missing and reauthorises the context issue asUser', async () => {
+  const result = await handler.getFailureModes({ context });
+  expect(result.modes.find((m) => m.code === 'FM-07').label).toBe('Surface damage');
+  expect(requestJira).toHaveBeenCalledWith('/rest/api/3/issue/10001?fields=id', expect.any(Object));
+  expect(kvs.get).toHaveBeenCalledTimes(1);
+});
+
+test('new schema-v3 custom codes produce a verified strong match through the resolver', async () => {
+  const { buildCapture } = require('../../lib/capture');
+  const current = buildCapture({ ...payload, failureMode: 'fm-08' });
+  const candidate = { id: '20002', key: 'QL-2', fields: { summary: 'Custom wire fracture', status: { name: 'Done' } },
+    properties: { qualityloop: buildCapture({ ...payload, recordType: 'CAPA', failureMode: 'FM-08', closedDate: '2026-10-01' }) } };
+  requestJira.mockResolvedValueOnce(response(200, { value: current }))
+    .mockResolvedValueOnce(response(200, { issues: [candidate], isLast: true }))
+    .mockResolvedValueOnce(response(200, candidate))
+    .mockResolvedValueOnce(response(200, { issues: [], isLast: true }));
+  const result = await handler.findMatches({ context });
+  expect(result.strong).toEqual([expect.objectContaining({ id: '20002', failureMode: 'FM-08' })]);
+  expect(JSON.parse(requestJira.mock.calls[1][1].body).jql).toContain('qlFailureMode = "FM-08"');
+});
+
+test.each([403, 404])('catalogue read hides all metadata when issue access returns %s', async (status) => {
+  requestJira.mockResolvedValue(response(status, {}));
+  expect(await handler.getFailureModes({ context })).toBeNull();
+  expect(kvs.get).not.toHaveBeenCalled();
+});
+
+test('direct save accepts active custom codes and rejects deactivated codes after a single authoritative read', async () => {
+  const modes = [{ code: 'FM-08', label: 'Wire fracture', active: true }];
+  kvs.get.mockResolvedValue({ version: 1, modes });
+  requestJira.mockResolvedValueOnce(response(200, { properties: {} })).mockResolvedValueOnce(response(204));
+  expect(await handler.saveCapture({ context, payload: { ...payload, failureMode: ' fm-08 ' } })).toHaveProperty('record.failureMode', 'FM-08');
+  expect(kvs.get).toHaveBeenCalledTimes(1);
+  kvs.get.mockResolvedValue({ version: 2, modes: [{ ...modes[0], active: false }] });
+  requestJira.mockResolvedValue(response(200, { properties: {} }));
+  expect(await handler.saveCapture({ context, payload: { ...payload, failureMode: 'FM-08' } })).toHaveProperty('fieldErrors.failureMode');
+});
+
+test('deactivated schema-v3 records still load, and KVS failure/corruption never silently uses the seed', async () => {
+  const record = { schemaVersion: 3, recordType: 'CAPA', failureMode: 'FM-08' };
+  requestJira.mockResolvedValue(response(200, { value: record }));
+  expect(await handler.loadCapture({ context })).toEqual({ record });
+  for (const corrupt of [null, { version: 1, modes: [null] }]) {
+    kvs.get.mockResolvedValue(corrupt);
+    expect(await handler.getFailureModes({ context })).toHaveProperty('error');
+  }
+  kvs.get.mockRejectedValue(new Error('Unavailable'));
+  expect(await handler.getFailureModes({ context })).toHaveProperty('error');
+});
 
 test('saves only to the context issue and produces the complete property via asUser', async () => {
   requestJira.mockResolvedValueOnce(response(200, { properties: {} })).mockResolvedValueOnce(response(201));
@@ -40,10 +93,10 @@ test('saves only to the context issue and produces the complete property via asU
   expect(options.method).toBe('PUT');
   const value = JSON.parse(options.body);
   expect(value).toEqual(result.record);
-  expect(value).toMatchObject({ partOriginal: payload.partNumber, partNorm: 'P-4471-A', partBase: 'P-4471', schemaVersion: 2 });
+  expect(value).toMatchObject({ partOriginal: payload.partNumber, partNorm: 'P-4471-A', partBase: 'P-4471', schemaVersion: 3 });
   expect(Object.keys(value).sort()).toEqual([
     'schemaVersion', 'recordType', 'partOriginal', 'partNorm', 'partBase', 'partRevision',
-    'failureMode', 'supplier', 'line', 'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'rootCause', 'actionsTaken', 'updatedAt',
+    'failureMode', 'supplier', 'supplierNorm', 'line', 'lineNorm', 'detectedDate', 'closedDate', 'effectivenessEvidenceUrl', 'rootCause', 'actionsTaken', 'updatedAt',
   ].sort());
   expect(api.asUser).toHaveBeenCalledTimes(2);
 });
@@ -150,7 +203,7 @@ test('returns errors as data on Jira failure without exposing response bodies', 
 
 test('release resolver surface contains only shipped features', () => {
   expect(Object.keys(handler).sort()).toEqual([
-    'loadCapture', 'loadEvidence', 'saveCapture', 'findMatches', 'findHints', 'getPanelAccess',
+    'loadCapture', 'loadEvidence', 'saveCapture', 'findMatches', 'findHints', 'getPanelAccess', 'getFailureModes',
     'recordDecision', 'getDecisions', 'prepareConcernTask', 'createConcernTask', 'checkConcernTask', 'confirmConcernTask', 'prepareRepairLink', 'repairConcernLink',
   ].sort());
 });
@@ -209,7 +262,7 @@ test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or st
     .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
     .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
   const result = await handler.findMatches({ context });
-  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, elapsedMs: expect.any(Number) });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, supplierIndexLimited: true, elapsedMs: expect.any(Number) });
   expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
 });
 

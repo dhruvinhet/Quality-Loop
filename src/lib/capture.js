@@ -1,5 +1,6 @@
 import { FAILURE_MODES } from '../config/failureModes';
-import { normalise } from './normalise';
+import { normalise, normaliseText } from './normalise';
+import { canonicalCode } from './failureModes';
 import { evidenceUrlError } from './urls';
 
 export const CAPTURE_FIELDS = [
@@ -13,13 +14,13 @@ export function validDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function validateCapture(input = {}) {
+export function validateCapture(input = {}, modes = FAILURE_MODES) {
   const errors = {};
   if (!['NC', 'CAPA'].includes(input.recordType)) errors.recordType = 'Select NC or CAPA.';
   if (typeof input.partNumber !== 'string' || !input.partNumber.trim()) {
     errors.partNumber = 'Enter a part number.';
   }
-  if (!FAILURE_MODES.some(({ value }) => value === input.failureMode)) {
+  if (!modes.some(({ code, active }) => active && code === canonicalCode(input.failureMode))) {
     errors.failureMode = 'Select a failure mode.';
   }
   if (input.recordType === 'NC' && !input.detectedDate) errors.detectedDate = 'Select a detected date for an NC.';
@@ -44,12 +45,14 @@ export function validateCapture(input = {}) {
 
 export function buildCapture(input, now = new Date().toISOString()) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     recordType: input.recordType,
     ...normalise(input.partNumber),
-    failureMode: input.failureMode,
+    failureMode: normaliseText(input.failureMode),
     supplier: input.supplier ?? '',
+    supplierNorm: normaliseText(input.supplier ?? ''),
     line: input.line ?? '',
+    lineNorm: normaliseText(input.line ?? ''),
     detectedDate: input.detectedDate || null,
     closedDate: input.recordType === 'CAPA' ? input.closedDate || null : null,
     effectivenessEvidenceUrl: input.recordType === 'CAPA' ? input.effectivenessEvidenceUrl || '' : '',

@@ -1,4 +1,4 @@
-import { normalise } from './normalise';
+import { normalise, normaliseText } from './normalise';
 import { windowStart } from './match';
 import { lookbackDays as defaultLookbackDays } from '../config/matching';
 
@@ -11,7 +11,7 @@ export function escapeJqlValue(value) {
 
 export function buildMatchJql(capture, lookbackDays = defaultLookbackDays) {
   const { partBase } = normalise(capture.partOriginal);
-  return boundedJql(capture, `qlPartBase = ${escapeJqlValue(partBase)} AND qlFailureMode = ${escapeJqlValue(capture.failureMode)}`, lookbackDays);
+  return boundedJql(capture, `qlPartBase = ${escapeJqlValue(partBase)} AND qlFailureMode = ${escapeJqlValue(normaliseText(capture.failureMode))}`, lookbackDays);
 }
 
 function boundedJql(capture, signature, lookbackDays = defaultLookbackDays) {
@@ -20,8 +20,10 @@ function boundedJql(capture, signature, lookbackDays = defaultLookbackDays) {
 
 export function buildOtherRelatedJql(capture) {
   const { partBase, partNorm } = normalise(capture.partOriginal);
+  const failureMode = normaliseText(capture.failureMode);
+  const supplier = normaliseText(capture.supplier ?? '');
   return [
-    boundedJql(capture, `qlPart = ${escapeJqlValue(partNorm)} AND qlFailureMode != ${escapeJqlValue(capture.failureMode)}`),
-    ...(capture.supplier?.trim() ? [boundedJql(capture, `qlFailureMode = ${escapeJqlValue(capture.failureMode)} AND qlSupplier = ${escapeJqlValue(capture.supplier)} AND qlPartBase != ${escapeJqlValue(partBase)}`)] : []),
+    boundedJql(capture, `qlPart = ${escapeJqlValue(partNorm)} AND qlFailureMode != ${escapeJqlValue(failureMode)}`),
+    ...(supplier ? [boundedJql(capture, `qlFailureMode = ${escapeJqlValue(failureMode)} AND qlSupplierNorm = ${escapeJqlValue(supplier)} AND qlPartBase != ${escapeJqlValue(partBase)}`)] : []),
   ];
 }

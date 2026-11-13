@@ -20,7 +20,7 @@ test('MatchView uses one loadEvidence invocation and keeps hints separate', asyn
   invoke.mockResolvedValue({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], pairs: {} });
   MatchView({});
   await Promise.resolve();
-  expect(invoke.mock.calls.map(([name]) => name)).toEqual(['loadEvidence', 'findHints']);
+  expect(invoke.mock.calls.map(([name]) => name)).toEqual(['loadEvidence', 'findHints', 'getFailureModes']);
   cleanup();
 });
 test('incomplete searches show all cap/budget notices and avoid definitive no-match wording', () => {
@@ -40,6 +40,21 @@ test('current distinct-NC count and capped history are labelled explicitly', () 
 
 const card = { id: '2', key: 'QL-2', partOriginal: 'T24-6604 -A', partNorm: 'T24-6604-A',
   failureMode: 'FM-01', rootCause: '', actionsTaken: '', supportingFacts: [], closedDate: '2026-10-01', statusCategory: 'done' };
+
+test('cards resolve current custom labels and fall back to stable codes for deactivated or unknown modes', () => {
+  for (const active of [true, false]) {
+    const tree = nodes(EvidenceCard({ match: { ...card, failureMode: 'FM-08' }, classification: 'strong',
+      failureModes: [{ code: 'FM-08', label: 'Wire fracture', active }] }));
+    const signature = tree.find((node) => typeof node === 'string' && node.startsWith('Exact signature:'));
+    expect(signature).toContain('failure mode FM-08');
+    expect(signature.includes('Wire fracture')).toBe(active);
+  }
+});
+
+test('supplier-index limitations are disclosed without hidden-record counts', () => {
+  const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [], supplierIndexLimited: true } }));
+  expect(tree).toContain('Supplier-based related searches cover only CAPAs saved with normalised supplier details. Older records may be missed until re-saved.');
+});
 
 test.each(['strong', 'relatedRevision'])('%s card explains the normalised part while preserving the original', (classification) => {
   const tree = nodes(EvidenceCard({ match: { ...card, partRevision: 'A' }, classification }));

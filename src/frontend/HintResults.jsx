@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Button, Link, SectionMessage, Stack, Text } from '@forge/react';
 import { HINT_CANDIDATE_LIMIT, HINT_LIMIT } from '../lib/hints';
+import { failureModeLabel } from '../lib/failureModes';
 
-export default function HintResults({ result }) {
+export default function HintResults({ result, failureModes }) {
   const hasHints = (result?.hints?.length ?? 0) > 0;
   const [expanded, setExpanded] = useState(hasHints);
   useEffect(() => { setExpanded(hasHints); }, [hasHints]);
@@ -29,6 +30,7 @@ export default function HintResults({ result }) {
             <Text><Link href={`/browse/${encodeURIComponent(hint.key)}`}>{hint.key}</Link>{` ${hint.summary ?? ''}`}</Text>
             <Text>{`Part number (as stored): "${hint.partOriginal}"`}</Text>
             <Text>{`Failure mode (as stored): "${hint.failureMode}"`}</Text>
+            <Text>{`Failure mode: ${failureModeLabel(hint.failureMode, failureModes)}`}</Text>
             <Text>{`QualityLoop closure date: ${hint.closedDate || 'not recorded'}`}</Text>
             <Text>{hint.reason}</Text>
           </Stack>

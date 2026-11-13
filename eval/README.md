@@ -17,6 +17,15 @@ The dataset was written **before** the evaluation harness, and its file hashes a
 
 ## Files
 
+### Failure-mode labels
+
+The frozen synthetic plant catalogue uses **FM-01 Crack, FM-02 Burr, FM-03
+Dimension out of tolerance, FM-04 Porosity, FM-05 Corrosion, FM-06 Missing feature,
+FM-07 Surface damage**. T29 aligns the app's default seed with this label set;
+the app also retains FM-99 Other. Site administrators may customise app labels
+or add stable codes, but that does not change the frozen plant's labels or data.
+Matching and evaluation use codes, not display labels. No frozen JSON was edited.
+
 | Path | In repo? | Contents |
 |---|---|---|
 | `corpus/capas.json` | yes | 24 CAPA records (shared by both splits) |
@@ -52,6 +61,11 @@ The dataset was written **before** the evaluation harness, and its file hashes a
 4. **strong:** eligible, same `normPart(part)`, and same text `norm(failureMode)`.
 5. **relatedRevision:** eligible, same base, different revision, and same failure mode.
 6. Supplier and line are supporting facts only; they never create or remove a match. `otherRelated` is not scored.
+
+Supplier/line supporting equality uses text `norm(x)` in the app as of T29;
+original strings remain for display. This does not alter L1's strong/revision
+sets or the frozen labels. The live `qlSupplierNorm` search limitation for old
+records is separate from this in-memory pure-logic evaluation.
 
 If the app disagrees with a rule here (for example on the day boundary), that is a finding. Decide which behaviour is correct, record it in `DISPUTES.md`, and fix the app or explain the difference. Do not edit the dataset.
 

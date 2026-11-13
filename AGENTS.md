@@ -27,6 +27,7 @@ When a quality engineer saves defect details on a nonconformance (NC), QualityLo
 
 ## Hard rules
 
+- Never edit docs/review/** or an earlier docs/tasks/T*.md. They are records. Add a new note instead.
 - **Platform.** Forge, with UI Kit (`@forge/react`, `render: native`), `@forge/resolver`, `@forge/api`, `@forge/bridge`, and `@forge/kvs` when storage is needed. Node.js 22.x or 24.x. JavaScript unless the scaffold is TypeScript.
 - **Use the `forge` MCP server tools** before writing manifest entries or using an API you have not verified in this repo:
   - `forge-development-guide`, `list-forge-modules`, `forge-app-manifest-guide`, `forge-backend-developer-guide`

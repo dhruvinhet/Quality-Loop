@@ -7,6 +7,7 @@ import { invoke } from '@forge/bridge';
 import { FAILURE_MODES } from '../config/failureModes';
 import { validateCapture } from '../lib/capture';
 import { validEvidenceUrl } from '../lib/urls';
+import { canonicalCode, failureModeLabel, modeOptions } from '../lib/failureModes';
 
 const RECORD_TYPES = ['NC', 'CAPA'].map((value) => ({ label: value, value }));
 const asPayload = (data) => ({
@@ -15,7 +16,11 @@ const asPayload = (data) => ({
   failureMode: data.failureMode?.value ?? '',
 });
 
-export default function CaptureForm({ record, initialRecordType = '', onSaved }) {
+export default function CaptureForm({ record, initialRecordType = '', onSaved, failureModes = FAILURE_MODES }) {
+  const options = modeOptions(failureModes);
+  const storedCode = canonicalCode(record?.failureMode);
+  const storedOption = options.find(({ value }) => value === storedCode)
+    ?? (storedCode ? { value: storedCode, label: `${failureModeLabel(record.failureMode, failureModes)} (inactive or unavailable)` } : null);
   const [recordType, setRecordType] = useState(record?.recordType ?? initialRecordType);
   const [message, setMessage] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -26,7 +31,7 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
     defaultValues: {
       recordType: RECORD_TYPES.find(({ value }) => value === (record?.recordType ?? initialRecordType)) ?? null,
       partNumber: record?.partOriginal ?? '',
-      failureMode: FAILURE_MODES.find(({ value }) => value === record?.failureMode) ?? null,
+      failureMode: storedOption,
       supplier: record?.supplier ?? '',
       line: record?.line ?? '',
       detectedDate: record?.detectedDate ?? '',
@@ -53,7 +58,7 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
   const save = async (data) => {
     setMessage(null);
     setFieldErrors({});
-    const validationErrors = validateCapture(asPayload(data));
+    const validationErrors = validateCapture(asPayload(data), failureModes);
     if (Object.keys(validationErrors).length) {
       setFieldErrors(validationErrors);
       return;
@@ -93,7 +98,8 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved })
         {error('partNumber')}
 
         <Label labelFor={getFieldId('failureMode')}>Failure mode *</Label>
-        <Select {...field('failureMode')} options={FAILURE_MODES} isDisabled={isSubmitting} />
+        <Select {...field('failureMode')} options={options} isDisabled={isSubmitting} />
+        {storedCode && !options.some(({ value }) => value === storedCode) && <Text>{`Stored failure mode: ${record.failureMode} (inactive or unavailable). Choose an active code before saving.`}</Text>}
         {error('failureMode')}
 
         <Label labelFor={getFieldId('supplier')}>Supplier</Label>

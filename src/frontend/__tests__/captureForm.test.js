@@ -50,6 +50,23 @@ const mount = (props) => {
 const submit = (tree) => tree.find((node) => node.type === 'Form').props.onSubmit(values);
 const complete = { recordType: 'CAPA', partOriginal: 'P-1', failureMode: 'FM-01', closedDate: '2026-10-01' };
 
+test('capture options and validation use the loaded custom catalogue; inactive stored codes remain visible', async () => {
+  const failureModes = [{ code: 'FM-08', label: 'Wire fracture', active: true }, { code: 'FM-09', label: 'Old mode', active: false }];
+  const render = mount({ record: { ...complete, failureMode: 'FM-09' }, failureModes });
+  let tree = render();
+  const select = tree.find((node) => node.type === 'Select' && node.props.name === 'failureMode');
+  expect(select.props.options).toEqual([{ value: 'FM-08', label: 'FM-08 Wire fracture' }]);
+  expect(values.failureMode.value).toBe('FM-09');
+  expect(tree).toContain('Stored failure mode: FM-09 (inactive or unavailable). Choose an active code before saving.');
+  await submit(tree);
+  expect(invoke).not.toHaveBeenCalled();
+  expect(render()).toContain('Select a failure mode.');
+  values.failureMode = { value: 'FM-08' };
+  invoke.mockResolvedValueOnce({ record: { ...complete, failureMode: 'FM-08' } });
+  tree = render(); await submit(tree);
+  expect(invoke).toHaveBeenCalledWith('saveCapture', expect.objectContaining({ failureMode: 'FM-08' }));
+});
+
 test('new CAPA shows the required closed-date label, hint and submit-only client validation', async () => {
   const render = mount({ initialRecordType: 'CAPA' });
   const tree = render();

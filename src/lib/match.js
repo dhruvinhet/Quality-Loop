@@ -29,8 +29,11 @@ export function matchCaptures(current, candidates, lookbackDays = defaultLookbac
         candidate.closedDate >= current.detectedDate || candidate.closedDate < start) continue;
     const part = normalise(candidate.partOriginal);
     const sameFailureMode = !!failureMode && normaliseText(text(candidate.failureMode)) === failureMode;
-    const sameSupplier = !!text(current.supplier).trim() && candidate.supplier === current.supplier;
-    const sameLine = !!text(current.line).trim() && candidate.line === current.line;
+    // Recompute from originals even for v3: direct property edits may leave stale norms.
+    const supplier = normaliseText(text(current.supplier));
+    const line = normaliseText(text(current.line));
+    const sameSupplier = !!supplier && normaliseText(text(candidate.supplier)) === supplier;
+    const sameLine = !!line && normaliseText(text(candidate.line)) === line;
     let classification;
     if (part.partNorm === nc.partNorm && sameFailureMode) classification = 'strong';
     else if (part.partBase === nc.partBase && part.partRevision !== nc.partRevision && sameFailureMode) classification = 'relatedRevision';

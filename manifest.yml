@@ -60,6 +60,9 @@ modules:
             - path: supplier
               type: string
               searchAlias: qlSupplier
+            - path: supplierNorm
+              type: string
+              searchAlias: qlSupplierNorm
             - path: detectedDate
               type: date
               searchAlias: qlDetected

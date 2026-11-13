@@ -12,8 +12,10 @@ export default function MatchView({ refresh = 0, readOnly = false, canEdit = !re
     let active = true;
     setState((previous) => ({ ...previous, error: null, refreshing: true }));
     Promise.all([invoke('loadEvidence'), invoke('findHints')
-      .catch(() => ({ error: 'Hints could not be loaded. Refresh evidence to try again.' }))]).then(([result, hints]) => {
+      .catch(() => ({ error: 'Hints could not be loaded. Refresh evidence to try again.' })),
+    invoke('getFailureModes').catch(() => null)]).then(([result, hints, catalogue]) => {
       if (active) setState({ result, hints, error: result?.error || (!result ? 'Evidence is unavailable with your current issue access.' : null), pairs: result?.pairs,
+        failureModes: catalogue?.modes ?? [], catalogueError: !catalogue?.modes,
         decisionsError: result?.decisionsIncomplete ? 'Decision history and counts are incomplete. Refresh to try again.'
           : (!result?.pairs ? 'Decision history could not be loaded.' : null) });
     }).catch(() => {
@@ -35,10 +37,11 @@ export default function MatchView({ refresh = 0, readOnly = false, canEdit = !re
   return <Stack space="space.200">
     {state.refreshing && <Text>Searching closed CAPAs and refreshing decisions. Please wait before recording a decision.</Text>}
     {state.decisionsError && <SectionMessage appearance="error"><Text>{state.decisionsError}</Text></SectionMessage>}
+    {state.catalogueError && <SectionMessage appearance="warning"><Text>Failure-mode labels could not be loaded. Codes are shown; refresh to retry.</Text></SectionMessage>}
     <Button isDisabled={state.refreshing} onClick={retry}>Refresh evidence and decisions</Button>
-    <EvidenceResults result={state.result} readOnly={readOnly} canEdit={canEdit} pairs={state.pairs}
+    <EvidenceResults result={state.result} readOnly={readOnly} canEdit={canEdit} pairs={state.pairs} failureModes={state.failureModes}
       decisionsReady={!state.refreshing && !!state.pairs} onChanged={() => setRevision((value) => value + 1)} />
-    <HintResults result={state.hints?.hints ? { ...state.hints,
+    <HintResults failureModes={state.failureModes} result={state.hints?.hints ? { ...state.hints,
       hints: excludeMatchedHints(state.hints.hints, state.result) } : state.hints} />
   </Stack>;
 }

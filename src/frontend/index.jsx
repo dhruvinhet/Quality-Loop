@@ -13,9 +13,11 @@ const App = () => {
   useEffect(() => {
     let active = true;
     setState({ loading: true });
-    Promise.all([invoke('loadCapture'), invoke('getPanelAccess')]).then(([result, access]) => {
+    Promise.all([invoke('loadCapture'), invoke('getPanelAccess'), invoke('getFailureModes')]).then(([result, access, catalogue]) => {
       if (active) setState({ loading: false, record: result?.record ?? null, canEdit: access?.canEdit === true,
-        error: result?.error || access?.error || (!access ? 'Issue access could not be checked. Try loading again.' : null) });
+        failureModes: catalogue?.modes,
+        error: result?.error || access?.error || catalogue?.error || (!catalogue?.modes ? 'Failure modes could not be loaded. Try loading again.' : null)
+          || (!access ? 'Issue access could not be checked. Try loading again.' : null) });
     }).catch(() => {
       if (active) setState({ loading: false, error: 'Quality details could not be loaded. Try again.' });
     });
@@ -36,11 +38,11 @@ const App = () => {
         <Text>Choose a record type, enter the quality details, then save this issue.</Text>
         <Button appearance="primary" onClick={() => setSetupType('NC')}>Set up as NC</Button>
         <Button onClick={() => setSetupType('CAPA')}>Set up as CAPA</Button>
-      </Stack> : <CaptureForm record={state.record} initialRecordType={setupType} onSaved={(record) => {
+      </Stack> : <CaptureForm record={state.record} failureModes={state.failureModes} initialRecordType={setupType} onSaved={(record) => {
         setState((previous) => ({ ...previous, record }));
         setMatchRefresh((value) => value + 1);
       }} />)
-        : <ReadOnlyCapture record={state.record} />}
+        : <ReadOnlyCapture record={state.record} failureModes={state.failureModes} />}
       {state.record && <MatchView refresh={matchRefresh} readOnly={!state.canEdit} />}
     </Stack>
   );

@@ -11,7 +11,7 @@ const classes = ['strong', 'relatedRevision', 'otherRelated'];
 const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
 export function issueCapture(issue) {
   const capture = issue?.properties?.qualityloop;
-  if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
+  if (!capture || ![1, 2, 3].includes(capture.schemaVersion)) return null;
   return { ...capture, id: String(issue.id), key: issue.key, summary: issue.fields?.summary,
     status: issue.fields?.status?.name, statusCategory: issue.fields?.status?.statusCategory?.key };
 }
@@ -29,8 +29,9 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
     checkJira(response);
     const current = (await budget.run(() => response.json())).value;
     if (current == null) return null;
-    if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+    if (![1, 2, 3].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
     if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
+    result.supplierIndexLimited = !!current.supplier?.trim();
     const nc = { ...current, id: issueId };
     const seen = new Set([issueId]);
     const queries = [[buildMatchJql(current), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete'],

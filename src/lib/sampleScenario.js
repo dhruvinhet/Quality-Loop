@@ -1,4 +1,5 @@
 import { buildCapture } from './capture';
+import { failureModeLabel } from './failureModes';
 
 export const SAMPLE_LABEL = 'qualityloop-sample';
 
@@ -15,8 +16,8 @@ export function sampleDefinitions(today = new Date().toISOString().slice(0, 10))
       rootCause: 'Fixture clamping stress initiated cracks at the mounting hole.',
       actionsTaken: 'Reduced clamp force and added a fixture setup check.' },
     { name: 'DEMO CAPA-B', recordType: 'CAPA', partNumber: 'DEMO-5520-A', failureMode: 'FM-07', supplier: 'DEMO-S-05', line: 'DEMO-L2',
-      closedDate: ago(45), rootCause: 'Weld current drift caused incomplete fusion.',
-      actionsTaken: 'Recalibrated the welder and added a start-of-shift parameter check.' },
+      closedDate: ago(45), rootCause: 'Worn handling pads scratched the surface during transfer.',
+      actionsTaken: 'Replaced the handling pads and added a start-of-shift pad check.' },
     { name: 'DEMO decoy CAPA', recordType: 'CAPA', partNumber: 'DEMO-5520-A', failureMode: 'FM-03',
       supplier: 'DEMO-S-05', line: 'DEMO-L2', closedDate: ago(20) },
     { name: 'DEMO historical NC', recordType: 'NC', partNumber: 'DEMO-4471-A', failureMode: 'FM-01',
@@ -33,5 +34,5 @@ export function removableSample(storedIds, issue) {
 }
 
 export function sampleCreationLines(definitions) {
-  return definitions.map(({ name, capture: c }) => `${name}: ${c.recordType}, part ${c.partOriginal}, ${c.failureMode}, supplier ${c.supplier || 'not recorded'}, line ${c.line || 'not recorded'}, ${c.recordType === 'CAPA' ? `QualityLoop closure date ${c.closedDate}` : `detected ${c.detectedDate}`}. Effectiveness evidence: ${c.effectivenessEvidenceUrl || 'none'}.${c.rootCause ? ` Root cause: ${c.rootCause}` : ''}${c.actionsTaken ? ` Actions: ${c.actionsTaken}` : ''}`);
+  return definitions.map(({ name, capture: c }) => `${name}: ${c.recordType}, part ${c.partOriginal}, ${failureModeLabel(c.failureMode)}, supplier ${c.supplier || 'not recorded'}, line ${c.line || 'not recorded'}, ${c.recordType === 'CAPA' ? `QualityLoop closure date ${c.closedDate}` : `detected ${c.detectedDate}`}. Effectiveness evidence: ${c.effectivenessEvidenceUrl || 'none'}.${c.rootCause ? ` Root cause: ${c.rootCause}` : ''}${c.actionsTaken ? ` Actions: ${c.actionsTaken}` : ''}`);
 }

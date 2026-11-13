@@ -86,7 +86,7 @@ test.each([
   [' \tfailure  mode\n01 ', 'FAILURE MODE 01'],
 ])('failure modes use text normalisation and retain originals: %j vs %j', (currentMode, candidateMode) => {
   const current = Object.freeze({ ...nc, failureMode: currentMode });
-  const candidate = Object.freeze(capa({ failureMode: candidateMode }));
+  const candidate = Object.freeze({ ...capa({ failureMode: candidateMode }), failureMode: candidateMode });
   const result = matchCaptures(current, [candidate]);
   expect(result.strong).toHaveLength(1);
   expect(result.strong[0].failureMode).toBe(candidateMode);
@@ -140,6 +140,28 @@ test('a configurable lookback uses UTC calendar days', () => {
 });
 test('missing supplier and line are not supporting facts', () => {
   expect(matchCaptures({ ...nc, supplier: '', line: '' }, [capa({ supplier: '', line: '' })]).strong[0].supportingFacts).toEqual([]);
+});
+
+test.each(['Acme Parts', 'ACME PARTS', ' acme  parts '])('supplier %j matches old/new records and preserves display text', (supplier) => {
+  const current = { ...nc, supplier: 'Acme Parts', line: ' Cell  A ' };
+  for (const schemaVersion of [1, 2, 3]) {
+    const candidate = { ...capa({ partNumber: 'OTHER-100-A', supplier, line: 'cell a' }), schemaVersion };
+    if (schemaVersion < 3) { delete candidate.supplierNorm; delete candidate.lineNorm; }
+    const other = matchCaptures(current, [candidate]).otherRelated;
+    expect(other).toHaveLength(1);
+    expect(other[0].supportingFacts).toEqual(['Same supplier: Acme Parts', 'Same line:  Cell  A ']);
+    expect(candidate.supplier).toBe(supplier);
+  }
+});
+
+test('JQL canonicalises failure codes and uses the stored normalised-supplier alias', () => {
+  const { buildOtherRelatedJql } = require('../matchJql');
+  const current = { ...nc, failureMode: ' fm-01 ', supplier: ' Acme  Parts ' };
+  expect(buildMatchJql(current)).toBe(buildMatchJql(nc));
+  expect(buildOtherRelatedJql(current)).toEqual([
+    'qlRecordType = "CAPA" AND qlPart = "P-4471-A" AND qlFailureMode != "FM-01" AND qlClosed >= "2025-10-31" AND qlClosed < "2026-10-31" ORDER BY qlClosed DESC, key ASC',
+    'qlRecordType = "CAPA" AND qlFailureMode = "FM-01" AND qlSupplierNorm = "ACME PARTS" AND qlPartBase != "P-4471" AND qlClosed >= "2025-10-31" AND qlClosed < "2026-10-31" ORDER BY qlClosed DESC, key ASC',
+  ]);
 });
 test('ordering is deterministic: strong class first, closure descending then key', () => {
   const candidates = [capa({}, { id: '3', key: 'QL-3' }), capa({ closedDate: '2026-09-30' }),

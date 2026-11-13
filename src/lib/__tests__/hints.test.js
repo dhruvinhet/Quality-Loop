@@ -7,7 +7,7 @@ const nc = { ...buildCapture({ recordType: 'NC', partNumber: 'P-5120-A',
   failureMode: 'FM-01', detectedDate: '2026-10-31' }), id: '1', key: 'QL-1' };
 const capa = (id, overrides = {}) => ({ ...buildCapture({ recordType: 'CAPA',
   partNumber: 'P-5120-A', failureMode: 'FM-01', closedDate: '2026-10-01', ...overrides }),
-  id, key: `QL-${id}` });
+  id, key: `QL-${id}`, failureMode: overrides.failureMode ?? 'FM-01' });
 
 test.each([
   ['P-5210-A', 'P-5120-A', true], // adjacent transposition

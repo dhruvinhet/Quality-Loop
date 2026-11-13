@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, Heading, Link, SectionMessage, Stack, Text } from '@forge/react';
-import { FAILURE_MODES } from '../config/failureModes';
+import { failureModeLabel } from '../lib/failureModes';
 import DecisionDetails from './DecisionDetails';
 import EvidenceLink from './EvidenceLink';
 import { plural } from '../lib/plural';
@@ -12,8 +12,8 @@ export function EvidenceHeading() {
   </Stack>;
 }
 
-export function EvidenceCard({ match, classification, data, readOnly, ready, onChanged }) {
-  const mode = FAILURE_MODES.find(({ value }) => value === match.failureMode)?.label ?? match.failureMode;
+export function EvidenceCard({ match, classification, data, readOnly, ready, onChanged, failureModes }) {
+  const mode = failureModeLabel(match.failureMode, failureModes);
   const part = `${match.partOriginal}${classification !== 'otherRelated' && match.partNorm && match.partOriginal !== match.partNorm
     ? ` (matched as ${match.partNorm})` : ''}`;
   return <Box padding="space.200" backgroundColor="color.background.neutral">
@@ -42,7 +42,7 @@ export function EvidenceCard({ match, classification, data, readOnly, ready, onC
   </Box>;
 }
 
-export default function EvidenceResults({ result, readOnly = false, canEdit = !readOnly, pairs = {}, decisionsReady = false, onChanged }) {
+export default function EvidenceResults({ result, readOnly = false, canEdit = !readOnly, pairs = {}, decisionsReady = false, onChanged, failureModes }) {
   const [showOther, setShowOther] = useState(false);
   if (!result) return <Stack space="space.200"><EvidenceHeading /><Text>Evidence is unavailable. Refresh evidence and check your issue access.</Text></Stack>;
   if (!result.applicable) return <Stack space="space.200">
@@ -54,6 +54,7 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
   const { strong, relatedRevision, otherRelated } = result;
   return <Stack space="space.200">
     <EvidenceHeading />
+    {result.supplierIndexLimited && <SectionMessage appearance="information"><Text>Supplier-based related searches cover only CAPAs saved with normalised supplier details. Older records may be missed until re-saved.</Text></SectionMessage>}
     {result.matchesIncomplete && <SectionMessage appearance="warning"><Text>Signature search is incomplete: checked up to 200 candidates. More closed CAPAs may match.</Text></SectionMessage>}
     {result.otherRelatedIncomplete && <SectionMessage appearance="warning"><Text>Other related search is limited to 20 candidates per query. More related records may exist.</Text></SectionMessage>}
     {result.incomplete && <SectionMessage appearance="warning"><Text>The loading time budget was reached or some evidence is incomplete. Only completed results are shown. Refresh to try again.</Text></SectionMessage>}
@@ -64,18 +65,18 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
       {!!relatedRevision.length && <Text>Related revisions are shown separately below. They are not exact signature matches.</Text>}
     </>}
     {strong.map((match) => <EvidenceCard key={match.id} match={match} classification="strong"
-      data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
+      data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} failureModes={failureModes} />)}
     {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more ${plural(result.notShown.strong, 'candidate')} not checked (most recent 25 verified matches shown).`}</Text>}
     {!!result.verifiedNotShown?.strong && <Text>{`${result.verifiedNotShown.strong} more verified ${plural(result.verifiedNotShown.strong, 'match', 'matches')} not shown (most recent 25 shown)`}</Text>}
     {relatedRevision.map((match) => <EvidenceCard key={match.id} match={match} classification="relatedRevision"
-      data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} />)}
+      data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} failureModes={failureModes} />)}
     {!!result.notShown?.relatedRevision && <Text>{`${result.notShown.relatedRevision} more ${plural(result.notShown.relatedRevision, 'candidate')} not checked (most recent 25 verified matches shown).`}</Text>}
     {!!result.verifiedNotShown?.relatedRevision && <Text>{`${result.verifiedNotShown.relatedRevision} more verified ${plural(result.verifiedNotShown.relatedRevision, 'match', 'matches')} not shown (most recent 25 shown)`}</Text>}
     <HistoricalDecisions canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} pairs={Object.fromEntries(Object.entries(pairs)
       .filter(([id]) => ![...strong, ...relatedRevision].some((match) => match.id === id)))} />
     {readOnly ? <Text>{`Other related ${plural(otherRelated.length, 'record')} (${otherRelated.length})`}</Text>
       : <Button appearance="subtle" isSelected={showOther} onClick={() => setShowOther((value) => !value)}>{`Other related ${plural(otherRelated.length, 'record')} (${otherRelated.length})`}</Button>}
-    {(readOnly || showOther) && otherRelated.map((match) => <EvidenceCard key={match.id} match={match} classification="otherRelated" />)}
+    {(readOnly || showOther) && otherRelated.map((match) => <EvidenceCard key={match.id} match={match} classification="otherRelated" failureModes={failureModes} />)}
   </Stack>;
 }
 

@@ -4,6 +4,7 @@ import { invoke } from '@forge/bridge';
 import { callPage, scanRecordPages, runHealthPages } from './pageRunner';
 import GettingStarted from './GettingStarted';
 import { plural } from '../lib/plural';
+import FailureModeCatalogue from './FailureModeCatalogue';
 
 const call = (name, payload) => callPage(invoke, name, payload);
 
@@ -60,6 +61,7 @@ export function DataPage() {
   }
   return <Stack space="space.300">
     <GettingStarted />
+    <FailureModeCatalogue />
     <Heading size="small" as="h2">Data health</Heading>
     <Text>Check stored NC and CAPA references for deleted issues. Only app-record counts are shown; issue content is not read.</Text>
     <Button isDisabled={busy} onClick={() => checkHealth()}>Check for orphaned records</Button>

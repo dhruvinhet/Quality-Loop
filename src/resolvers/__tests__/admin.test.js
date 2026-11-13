@@ -44,6 +44,60 @@ async function scan() {
   return { token, page: await handler.findOrphanPage(req({ token, entity: 'decision' })) };
 }
 
+test('missing site catalogue falls back to seed without a write; adding and renaming persist canonical codes', async () => {
+  const seed = await handler.getFailureModeCatalogue(req());
+  expect(seed.version).toBe(0);
+  expect(seed.modes.find((m) => m.code === 'FM-02').label).toBe('Burr');
+  expect(kvs.set).not.toHaveBeenCalled();
+  const added = await handler.changeFailureMode(req({ action: 'add', code: ' fm-08 ', label: 'Wire fracture', expectedVersion: 0 }));
+  expect(added.modes).toContainEqual({ code: 'FM-08', label: 'Wire fracture', active: true });
+  expect(storage.get('fm-catalog:site')).toEqual(added);
+  const renamed = await handler.changeFailureMode(req({ action: 'rename', code: 'FM-08', label: 'Wire break', expectedVersion: 1 }));
+  expect(renamed.modes).toContainEqual({ code: 'FM-08', label: 'Wire break', active: true });
+  expect(api.asApp).not.toHaveBeenCalled();
+});
+
+test.each(['getFailureModeCatalogue', 'changeFailureMode'])('%s rechecks global ADMINISTER before any storage access', async (name) => {
+  for (const status of [200, 403, 404]) {
+    userRequest.mockResolvedValue(response(status, { permissions: { ADMINISTER: { havePermission: false }, ADMINISTER_PROJECTS: { havePermission: true } } }));
+    expect(await handler[name](req({}))).toBeNull();
+    expect(kvs.get).not.toHaveBeenCalled();
+    expect(kvs.set).not.toHaveBeenCalled();
+  }
+  expect(userRequest).toHaveBeenCalledWith('/rest/api/3/mypermissions?permissions=ADMINISTER', expect.any(Object));
+});
+
+test.each(['jira:issuePanel', 'jira:projectPage', undefined])('catalogue admin endpoints reject the wrong module context %j', async (type) => {
+  expect(await handler.getFailureModeCatalogue(req({}, { ...context, extension: { type } }))).toBeNull();
+  expect(await handler.changeFailureMode(req({}, { ...context, extension: { type } }))).toBeNull();
+  expect(userRequest).not.toHaveBeenCalled();
+  expect(kvs.get).not.toHaveBeenCalled();
+});
+
+test('deactivation retains codes, disallows reuse/deletion, and rejects stale revisions', async () => {
+  const changed = await handler.changeFailureMode(req({ action: 'deactivate', code: 'FM-01', expectedVersion: 0 }));
+  expect(changed.modes.find((m) => m.code === 'FM-01')).toMatchObject({ active: false });
+  const stale = await handler.changeFailureMode(req({ action: 'rename', code: 'FM-01', label: 'Stale', expectedVersion: 0 }));
+  expect(stale.error).toMatch(/changed/);
+  for (const payload of [{ action: 'delete', code: 'FM-01' }, { action: 'add', code: 'FM-01', label: 'Reuse' }]) {
+    expect(await handler.changeFailureMode(req({ ...payload, expectedVersion: 1 }))).toHaveProperty('error');
+  }
+  expect(storage.get('fm-catalog:site')).toEqual(changed);
+  expect(kvs.delete.mock.calls.every(([key]) => key === 'fm-catalog:site:lock')).toBe(true);
+});
+
+test('catalogue lock prevents parallel stale overwrites; permission loss prevents the catalogue write', async () => {
+  storage.set('fm-catalog:site:lock', { token: 'another-admin' });
+  expect(await handler.changeFailureMode(req({ action: 'deactivate', code: 'FM-01', expectedVersion: 0 }))).toHaveProperty('error');
+  expect(storage.has('fm-catalog:site')).toBe(false);
+  storage.delete('fm-catalog:site:lock');
+  userRequest.mockResolvedValueOnce(response(200, { permissions: { ADMINISTER: { havePermission: true } } }))
+    .mockResolvedValueOnce(response(200, { permissions: { ADMINISTER: { havePermission: false } } }));
+  expect(await handler.changeFailureMode(req({ action: 'deactivate', code: 'FM-01', expectedVersion: 0 }))).toBeNull();
+  expect(storage.has('fm-catalog:site')).toBe(false);
+  expect(storage.has('fm-catalog:site:lock')).toBe(false);
+});
+
 test.each(Object.keys(handler))('%s rejects payload issue identifiers before Jira access', async (name) => {
   expect(await handler[name](req({ issueId: '99999' }))).toHaveProperty('error');
   expect(userRequest).not.toHaveBeenCalled();

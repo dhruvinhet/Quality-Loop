@@ -6,6 +6,7 @@ import { BudgetExceeded, JIRA_BUSY, checkJira, loadBudget } from './loadBudget';
 import { buildHintJql } from '../lib/hintJql';
 import { HINT_CANDIDATE_LIMIT, selectHints } from '../lib/hints';
 import { registerDecisionResolvers } from './decisions';
+import { readFailureModes } from './failureModes';
 
 const resolver = new Resolver();
 
@@ -62,8 +63,15 @@ async function writeProperty(issueId, propertyKey, value) {
 define('loadCapture', [], async (issueId) => {
   const record = await readProperty(issueId, 'qualityloop');
   if (record == null) return null;
-  if (![1, 2].includes(record.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+  if (![1, 2, 3].includes(record.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
   return { record };
+});
+
+define('getFailureModes', [], async (issueId) => {
+  const response = await api.asUser().requestJira(route`/rest/api/3/issue/${issueId}?fields=id`, { headers });
+  if ([403, 404].includes(response.status)) return null;
+  checkJira(response);
+  return readFailureModes();
 });
 
 define('findMatches', [], (issueId) => findMatches(issueId));
@@ -77,7 +85,7 @@ define('findHints', [], async (issueId) => {
     current = await budget.run(() => readProperty(issueId, 'qualityloop'));
     if (current == null) return null;
     if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
-    if (![1, 2].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+    if (![1, 2, 3].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
     const seen = new Set([issueId]);
     // One capped page per query. Never use search totals or search snapshots as
     // evidence, and never let hint candidates enter the match/decision pipeline.
@@ -106,7 +114,7 @@ define('findHints', [], async (issueId) => {
           checkJira(response);
           const issue = await budget.run(() => response.json());
           const capture = issue.properties?.qualityloop;
-          if (!capture || ![1, 2].includes(capture.schemaVersion)) return null;
+          if (!capture || ![1, 2, 3].includes(capture.schemaVersion)) return null;
           return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary };
         }));
         candidates.push(...fresh.filter(Boolean));
@@ -133,7 +141,8 @@ define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {
   if (stored?.recordType && payload.recordType !== stored.recordType) {
     return { error: 'Record type cannot be changed after the first save. Create a new issue instead.' };
   }
-  const fieldErrors = validateCapture(payload);
+  const catalogue = await readFailureModes(); // One authoritative read per save invocation.
+  const fieldErrors = validateCapture(payload, catalogue.modes);
   if (Object.keys(fieldErrors).length) return { fieldErrors };
   const record = buildCapture(payload);
   if (Buffer.byteLength(JSON.stringify(record), 'utf8') > 32768) {
