@@ -3,6 +3,7 @@ import ForgeReconciler, { Button, Heading, Link, Stack, Text } from '@forge/reac
 import { invoke } from '@forge/bridge';
 import PageConfirmation from './PageConfirmation';
 import { callPage, pollSampleReady, scanRecordPages } from './pageRunner';
+import ProjectSearchSettings from './ProjectSearchSettings';
 
 const call = (name, payload) => callPage(invoke, name, payload);
 
@@ -67,6 +68,7 @@ export function SamplePage() {
     <Text>2. {ready ? <>Open the DEMO new NC <Link href={`/browse/${encodeURIComponent(ready.newNcKey)}`}>{ready.newNcKey}</Link>.</>
       : 'Wait for the sample to be ready, or use Check sample readiness. Then open the DEMO new NC.'} Open QualityLoop from the apps icon under the issue title and click Save.</Text>
     <Text>3. Review the DEMO CAPA-B match and any hints. Record an engineer decision with a reason.</Text>
+    <ProjectSearchSettings />
     <Text>Creates five labelled DEMO issues in this project. It never edits existing issues.</Text>
     <Button isDisabled={busy || !sample || sample.exists} onClick={() => run(async () => {
       const plan = await call('prepareSample');

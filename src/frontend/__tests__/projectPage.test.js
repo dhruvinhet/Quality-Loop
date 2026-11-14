@@ -4,6 +4,7 @@ jest.mock('@forge/bridge', () => ({ invoke: jest.fn() }));
 const React = require('react');
 const { invoke } = require('@forge/bridge');
 const { SamplePage } = require('../projectPage');
+const ProjectSearchSettings = require('../ProjectSearchSettings').default;
 const nodes = (element) => element == null || typeof element === 'boolean' ? [] : Array.isArray(element) ? element.flatMap(nodes)
   : [element, ...(element.props ? nodes(element.props.children) : [])];
 let state, cursor;
@@ -21,6 +22,13 @@ beforeEach(() => {
   });
 });
 afterEach(() => jest.restoreAllMocks());
+
+test('search settings appear below the three-step walkthrough', () => {
+  const tree = render();
+  const component = tree.find((node) => node.type === ProjectSearchSettings);
+  expect(component).toBeDefined();
+  expect(tree.indexOf(component)).toBeGreaterThan(tree.findIndex((node) => typeof node === 'string' && node.startsWith('3. Review the DEMO')));
+});
 
 test('project page presents three compact first-run steps without an admin page', () => {
   const tree = render();

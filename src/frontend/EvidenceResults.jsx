@@ -4,11 +4,13 @@ import { failureModeLabel } from '../lib/failureModes';
 import DecisionDetails from './DecisionDetails';
 import EvidenceLink from './EvidenceLink';
 import { plural } from '../lib/plural';
+import { searchDescription } from '../lib/searchSettings';
 
-export function EvidenceHeading() {
+export function EvidenceHeading({ search } = {}) {
   return <Stack space="space.100">
     <Heading size="small" as="h2">Possible recurrence evidence</Heading>
-    <Text size="small" color="color.text.subtle">Matches use exact part number and failure mode, CAPAs closed 1–365 days before detection. Engineer review is required.</Text>
+    <Text size="small" color="color.text.subtle">{search ? searchDescription(search) : 'Search scope and look-back window are shown after evidence loads.'}</Text>
+    <Text size="small" color="color.text.subtle">Matches use exact part number and failure mode. Engineer review is required.</Text>
   </Stack>;
 }
 
@@ -46,23 +48,24 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
   const [showOther, setShowOther] = useState(false);
   if (!result) return <Stack space="space.200"><EvidenceHeading /><Text>Evidence is unavailable. Refresh evidence and check your issue access.</Text></Stack>;
   if (!result.applicable) return <Stack space="space.200">
-    <EvidenceHeading />
+    <EvidenceHeading search={result.search} />
     <Text>{canEdit === false ? 'Evidence matching needs a saved NC with a detected date. Open an NC, or ask someone with Edit Issues permission to complete its quality details.'
       : 'Evidence matching needs a saved NC with a detected date. Open an NC, complete its quality details and save to search closed CAPAs.'}</Text>
     <HistoricalDecisions pairs={pairs} canRecover={!readOnly && canEdit && decisionsReady} onChanged={onChanged} />
   </Stack>;
   const { strong, relatedRevision, otherRelated } = result;
   return <Stack space="space.200">
-    <EvidenceHeading />
+    <EvidenceHeading search={result.search} />
     {result.matchesIncomplete && <SectionMessage appearance="warning"><Text>Signature search is incomplete: checked up to 200 candidates. More closed CAPAs may match.</Text></SectionMessage>}
     {result.otherRelatedIncomplete && <SectionMessage appearance="warning"><Text>Other related search is limited to 20 candidates per query. More related records may exist.</Text></SectionMessage>}
     {result.incomplete && <SectionMessage appearance="warning"><Text>The loading time budget was reached or some evidence is incomplete. Only completed results are shown. Refresh to try again.</Text></SectionMessage>}
     {!strong.length && <>
-      <Text>{result.matchesIncomplete || result.incomplete || result.uncheckedCandidates ? 'No exact signature match found in the completed checks.' : 'No closed CAPA with this part and failure mode in the last 365 days'}</Text>
+      <Text>{result.matchesIncomplete || result.incomplete || result.uncheckedCandidates ? 'No exact signature match found in the completed checks.' : `No closed CAPA with this part and failure mode in the last ${result.search?.lookbackDays ?? 365} days`}</Text>
       <Text>{canEdit === false ? 'Check the saved quality details. Ask someone with Edit Issues permission to correct them if needed, then refresh evidence.'
         : 'Check the saved part number, failure mode and detected date, then refresh evidence.'}</Text>
       {!!relatedRevision.length && <Text>Related revisions are shown separately below. They are not exact signature matches.</Text>}
     </>}
+    {result.search?.scope === 'PROJECT' && !strong.length && !relatedRevision.length && <Text>Only this project was searched. A project admin can include other projects in QualityLoop settings.</Text>}
     {strong.map((match) => <EvidenceCard key={match.id} match={match} classification="strong"
       data={pairs[match.id]} readOnly={readOnly} ready={decisionsReady} onChanged={onChanged} failureModes={failureModes} />)}
     {!!result.notShown?.strong && <Text>{`${result.notShown.strong} more ${plural(result.notShown.strong, 'candidate')} not checked (most recent 25 verified matches shown).`}</Text>}

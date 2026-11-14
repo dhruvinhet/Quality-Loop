@@ -1,6 +1,7 @@
 import { lookbackDays as defaultLookbackDays } from '../config/matching';
 import { validDate } from './capture';
 import { normalise, normaliseText } from './normalise';
+import { inProjectScope } from './searchSettings';
 
 const DAY_MS = 86400000;
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -15,14 +16,14 @@ export function windowStart(detectedDate, lookbackDays = defaultLookbackDays) {
 
 // Captures are flat; candidates add id, key, summary and status. Jira status is
 // evidence only: the recorded closedDate defines closure for these rules.
-export function matchCaptures(current, candidates, lookbackDays = defaultLookbackDays) {
+export function matchCaptures(current, candidates, lookbackDays = defaultLookbackDays, projectIds) {
   const classes = { strong: [], relatedRevision: [], otherRelated: [] };
   if (current?.recordType !== 'NC' || !validDate(current.detectedDate) || !text(current.partOriginal).trim()) return classes;
   const start = windowStart(current.detectedDate, lookbackDays);
   const nc = normalise(current.partOriginal);
   const failureMode = normaliseText(text(current.failureMode));
   for (const candidate of candidates) {
-    if (!candidate || candidate.recordType !== 'CAPA' ||
+    if (!candidate || !inProjectScope(candidate.projectId, projectIds) || candidate.recordType !== 'CAPA' ||
         (current.id != null && String(candidate.id) === String(current.id)) ||
         (current.key && candidate.key === current.key) ||
         !text(candidate.partOriginal).trim() || !validDate(candidate.closedDate) ||

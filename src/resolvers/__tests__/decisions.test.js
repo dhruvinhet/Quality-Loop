@@ -1,3 +1,4 @@
+jest.mock('@forge/kvs', () => ({ kvs: { get: jest.fn() } }));
 jest.mock('@forge/resolver', () => ({ __esModule: true, default: class {
   definitions = {};
   define(name, fn) { this.definitions[name] = fn; }
@@ -9,6 +10,7 @@ jest.mock('../decisionStore', () => ({ commitDecision: jest.fn(), getPairState: 
   readDecision: jest.fn(), claimTask: jest.fn(), saveTaskMetadata: jest.fn(), saveTaskLinked: jest.fn() }));
 
 const api = require('@forge/api').default;
+const { kvs } = require('@forge/kvs');
 const store = require('../decisionStore');
 const { handler } = require('../index');
 const requestJira = jest.fn();
@@ -43,6 +45,7 @@ let createdFields;
 let createdLinks;
 beforeEach(() => {
   jest.clearAllMocks();
+  kvs.get.mockReset().mockResolvedValue(undefined);
   api.asUser.mockReturnValue({ requestJira });
   edit = true; create = true; hidden = new Set(); captured = capa; current = nc; searchIds = ['20002']; createStatus = 201; linkStatus = 201;
   createdProperties = {};
@@ -105,6 +108,27 @@ test('decision uses context identity and fresh strong matching before committing
     capa: expect.objectContaining({ id: '20002' }), payload }));
   expect(requestJira.mock.calls.map(([path]) => path)).not.toContain('/rest/api/3/search/jql');
   expect(requestJira).toHaveBeenCalledTimes(3);
+});
+
+test('decision validation honours the NC project look-back and scope using fresh Jira reads', async () => {
+  captured = { ...capa, closedDate: new Date(Date.parse(nc.detectedDate) - 400 * 86400000).toISOString().slice(0, 10) };
+  expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
+  expect(store.commitDecision).not.toHaveBeenCalled();
+  kvs.get.mockResolvedValue({ version: 1, scope: 'PROJECT', lookbackDays: 730, projectIds: [] });
+  expect(await handler.recordDecision({ context, payload })).toEqual({ success: true });
+  expect(kvs.get).toHaveBeenCalledWith('settings:123');
+  store.commitDecision.mockClear();
+  const original = requestJira.getMockImplementation();
+  requestJira.mockImplementation(async (path, options) => {
+    const response = await original(path, options);
+    if (path.startsWith('/rest/api/3/issue/20002?')) {
+      const body = await response.json();
+      return { ...response, json: async () => ({ ...body, fields: { ...body.fields, project: { id: '456', key: 'OTHER' } } }) };
+    }
+    return response;
+  });
+  expect(await handler.recordDecision({ context, payload })).toHaveProperty('error');
+  expect(store.commitDecision).not.toHaveBeenCalled();
 });
 
 test.each([

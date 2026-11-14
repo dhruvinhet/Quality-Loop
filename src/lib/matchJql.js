@@ -9,21 +9,26 @@ export function escapeJqlValue(value) {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export function buildMatchJql(capture, lookbackDays = defaultLookbackDays) {
+export function scopedJql(jql, projectIds) {
+  if (projectIds == null) return jql;
+  if (!projectIds.length) throw new Error('Search project scope is empty.');
+  return `project in (${projectIds.map(escapeJqlValue).join(', ')}) AND ${jql}`;
+}
+export function buildMatchJql(capture, lookbackDays = defaultLookbackDays, projectIds) {
   const { partBase } = normalise(capture.partOriginal);
-  return boundedJql(capture, `qlPartBase = ${escapeJqlValue(partBase)} AND qlFailureMode = ${escapeJqlValue(normaliseText(capture.failureMode))}`, lookbackDays);
+  return scopedJql(boundedJql(capture, `qlPartBase = ${escapeJqlValue(partBase)} AND qlFailureMode = ${escapeJqlValue(normaliseText(capture.failureMode))}`, lookbackDays), projectIds);
 }
 
 function boundedJql(capture, signature, lookbackDays = defaultLookbackDays) {
   return `qlRecordType = "CAPA" AND ${signature} AND qlClosed >= ${escapeJqlValue(windowStart(capture.detectedDate, lookbackDays))} AND qlClosed < ${escapeJqlValue(capture.detectedDate)} ORDER BY qlClosed DESC, key ASC`;
 }
 
-export function buildOtherRelatedJql(capture) {
+export function buildOtherRelatedJql(capture, lookbackDays = defaultLookbackDays, projectIds) {
   const { partBase, partNorm } = normalise(capture.partOriginal);
   const failureMode = normaliseText(capture.failureMode);
   const supplier = normaliseText(capture.supplier ?? '');
   return [
-    boundedJql(capture, `qlPart = ${escapeJqlValue(partNorm)} AND qlFailureMode != ${escapeJqlValue(failureMode)}`),
-    ...(supplier ? [boundedJql(capture, `qlFailureMode = ${escapeJqlValue(failureMode)} AND qlSupplierNorm = ${escapeJqlValue(supplier)} AND qlPartBase != ${escapeJqlValue(partBase)}`)] : []),
-  ];
+    boundedJql(capture, `qlPart = ${escapeJqlValue(partNorm)} AND qlFailureMode != ${escapeJqlValue(failureMode)}`, lookbackDays),
+    ...(supplier ? [boundedJql(capture, `qlFailureMode = ${escapeJqlValue(failureMode)} AND qlSupplierNorm = ${escapeJqlValue(supplier)} AND qlPartBase != ${escapeJqlValue(partBase)}`, lookbackDays)] : []),
+  ].map((jql) => scopedJql(jql, projectIds));
 }

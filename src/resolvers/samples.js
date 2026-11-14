@@ -4,11 +4,13 @@ import { route } from '@forge/api';
 import { kvs } from '@forge/kvs';
 import { removableSample, SAMPLE_LABEL, sampleCreationLines, sampleDefinitions, selectSampleIssueType } from '../lib/sampleScenario';
 import { readFailureModes } from './failureModes';
+import { registerSearchSettings } from './searchSettings';
 import { RECORD_ENTITIES, recordsForIssues } from '../lib/cleanup';
 import { deleteRecordBatch, recordPage } from './cleanupStore';
 import { pageDefine, projectContext, readTicket, saveTicket, userJira, validCursor } from './pageUtils';
 
 const resolver = new Resolver();
+registerSearchSettings(resolver);
 const sampleKey = (project) => `sample:${project.id}`;
 const post = (body) => ({ method: 'POST', body: JSON.stringify(body) });
 

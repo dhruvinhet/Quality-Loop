@@ -1,10 +1,11 @@
 import { normalise } from './normalise';
 import { windowStart } from './match';
-import { escapeJqlValue } from './matchJql';
+import { escapeJqlValue, scopedJql } from './matchJql';
+import { lookbackDays as defaultLookbackDays } from '../config/matching';
 
-export function buildHintJql(capture) {
+export function buildHintJql(capture, lookbackDays = defaultLookbackDays, projectIds) {
   const part = escapeJqlValue(normalise(capture.partOriginal).partNorm);
-  const start = escapeJqlValue(windowStart(capture.detectedDate));
+  const start = escapeJqlValue(windowStart(capture.detectedDate, lookbackDays));
   const detected = escapeJqlValue(capture.detectedDate);
   // No failure-mode restriction: its stored original may differ in case/spacing.
   // IS EMPTY is not documented for date property aliases. The second query
@@ -13,5 +14,5 @@ export function buildHintJql(capture) {
     `qlRecordType = "CAPA" AND qlClosed >= ${start} AND qlClosed < ${detected} ORDER BY qlClosed DESC, key ASC`,
     `qlRecordType = "CAPA" AND qlPart = ${part} ORDER BY key ASC`,
     `qlRecordType = "CAPA" AND qlPart = ${part} AND qlClosed < ${start} ORDER BY qlClosed DESC, key ASC`,
-  ];
+  ].map((jql) => scopedJql(jql, projectIds));
 }

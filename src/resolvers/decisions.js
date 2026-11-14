@@ -3,6 +3,7 @@ import { concernAllowed, followupConfirmation, validIssueId, validateDecision, n
 import { claimTask, commitDecision, getPairState, queryRecords, pairConfirmed, PAIR_ENTITY, DECISION_ENTITY, readDecision, saveTaskMetadata, saveTaskLinked } from './decisionStore';
 import { matchCaptures } from '../lib/match';
 import { issueCapture } from './evidence';
+import { searchForIssue } from './searchSettings';
 import { selectSampleIssueType } from '../lib/sampleScenario';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
 import { FOLLOWUP_PROPERTY, followupMarker, followupDescription, jiraSiteOrigin, descriptionPreview, hasDescription, hasCapaLink, isRecoveryTask, recoveryConfirmation, recoveryJql, recoveryMarkerKind, repairLinkConfirmation } from '../lib/followup';
@@ -108,7 +109,8 @@ export function registerDecisionResolvers({ define, findMatches }) {
     if (!await canEdit(issueId)) return deniedEdit();
     const authorAccountId = context?.accountId;
     if (typeof authorAccountId !== 'string' || !authorAccountId.trim()) return { error: 'Your account context is unavailable. Reopen the issue.' };
-    const matches = matchCaptures(issueCapture(currentIssue), [issueCapture(capaIssue)]);
+    const search = await searchForIssue(currentIssue);
+    const matches = matchCaptures(issueCapture(currentIssue), [issueCapture(capaIssue)], search.lookbackDays, search.projectIds);
     const capa = [...(matches.strong ?? []), ...(matches.relatedRevision ?? [])].find(({ id }) => id === payload.capaId);
     if (!capa) return { error: 'This CAPA is no longer a strong or related revision match. Reload the evidence.' };
     // Check transition with the direct read again inside commitDecision, after the

@@ -19,6 +19,11 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
+test('hint copy names the configured look-back window', () => {
+  const tree = nodes(HintResults({ result: { ...result, search: { scope: 'PROJECT', lookbackDays: 730 } } }));
+  expect(tree.some((node) => typeof node === 'string' && node.includes('near-identical part numbers within 730 days') && node.includes('outside the 730-day window'))).toBe(true);
+});
+
 test.each([
   [[{ code: 'FM-08', label: 'Wire fracture', active: false }], 'FM-08 Wire fracture (inactive)'],
   [[], 'FM-08 (not in catalogue)'],
@@ -55,7 +60,7 @@ test('expanded truncated hint search shows the cap notice and cautious manual-re
   jest.spyOn(React, 'useState').mockReturnValue([true, jest.fn()]);
   const tree = nodes(HintResults({ result: { ...result, incomplete: true, truncated: true } }));
   expect(tree).toContain('The hint searches check at most 50 candidates each; more may exist.');
-  expect(tree).toContain('Up to 3 hints, from limited searches (at most 50 candidates each): near-identical part numbers, same part with no closed date, and older precedents. These are not matches.');
+  expect(tree).toContain('Up to 3 hints, from limited searches (at most 50 candidates each): near-identical part numbers within 365 days, same part with no closed date, and older precedents outside the 365-day window. These are not matches.');
   expect(tree).toContain('These records do not meet the matching rules, but may still be worth a manual review. Only records you can browse are shown.');
   expect(tree.find(({ type }) => type === 'SectionMessage').props.appearance).toBe('information');
   expect(tree.some((node) => typeof node === 'string' && node.includes('recently closed'))).toBe(false);

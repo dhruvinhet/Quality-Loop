@@ -3,6 +3,8 @@ import { validDate } from '../lib/capture';
 import { matchCaptures } from '../lib/match';
 import { buildMatchJql, buildOtherRelatedJql } from '../lib/matchJql';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
+import { searchForIssue } from './searchSettings';
+import { publicSearch } from '../lib/searchSettings';
 
 export const MATCH_CANDIDATE_LIMIT = 200;
 export const MATCH_DISPLAY_LIMIT = 25;
@@ -12,7 +14,7 @@ const headers = { Accept: 'application/json', 'Content-Type': 'application/json'
 export function issueCapture(issue) {
   const capture = issue?.properties?.qualityloop;
   if (!capture || ![1, 2, 3].includes(capture.schemaVersion)) return null;
-  return { ...capture, id: String(issue.id), key: issue.key, summary: issue.fields?.summary,
+  return { ...capture, id: String(issue.id), key: issue.key, projectId: String(issue.fields?.project?.id ?? ''), summary: issue.fields?.summary,
     status: issue.fields?.status?.name, statusCategory: issue.fields?.status?.statusCategory?.key };
 }
 
@@ -24,38 +26,41 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
   const unchecked = new Map();
   try {
     const response = await budget.run(() => api.asUser().requestJira(
-      route`/rest/api/3/issue/${issueId}/properties/qualityloop`, { headers }));
+      route`/rest/api/3/issue/${issueId}?fields=project&properties=qualityloop`, { headers }));
     if ([403, 404].includes(response.status)) return null;
     checkJira(response);
-    const current = (await budget.run(() => response.json())).value;
+    const currentIssue = await budget.run(() => response.json());
+    const current = currentIssue.properties?.qualityloop;
     if (current == null) return null;
     if (![1, 2, 3].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
     if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
+    const search = await searchForIssue(currentIssue, budget);
+    result.search = publicSearch(search);
     result.supplierIndexLimited = !!current.supplier?.trim();
     const nc = { ...current, id: issueId };
     const seen = new Set([issueId]);
-    const queries = [[buildMatchJql(current), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete'],
-      ...buildOtherRelatedJql(current).map((jql) => [jql, OTHER_RELATED_LIMIT, 'otherRelatedIncomplete'])];
+    const queries = [[buildMatchJql(current, search.lookbackDays, search.projectIds), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete'],
+      ...buildOtherRelatedJql(current, search.lookbackDays, search.projectIds).map((jql) => [jql, OTHER_RELATED_LIMIT, 'otherRelatedIncomplete'])];
     for (const [jql, limit, flag] of queries) {
       let token;
       let fetched = 0;
       let pages = 0;
       const selected = [];
       do {
-        const search = await budget.run(() => api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+        const searchResponse = await budget.run(() => api.asUser().requestJira(route`/rest/api/3/search/jql`, {
           method: 'POST', headers, body: JSON.stringify({ jql, maxResults: Math.min(50, limit - fetched),
-            fields: ['summary', 'status'], properties: ['qualityloop'], ...(token ? { nextPageToken: token } : {}) }),
+            fields: ['summary', 'status', 'project'], properties: ['qualityloop'], ...(token ? { nextPageToken: token } : {}) }),
         }));
-        if ([403, 404].includes(search.status)) return null;
-        checkJira(search);
-        const data = await budget.run(() => search.json());
+        if ([403, 404].includes(searchResponse.status)) return null;
+        checkJira(searchResponse);
+        const data = await budget.run(() => searchResponse.json());
         const rows = (data.issues ?? []).slice(0, limit - fetched);
         fetched += rows.length;
         for (const issue of rows) {
           const id = String(issue.id);
           if (!/^\d+$/.test(id) || seen.has(id)) continue;
           seen.add(id);
-          const classified = matchCaptures(nc, [issueCapture(issue)]);
+          const classified = matchCaptures(nc, [issueCapture(issue)], search.lookbackDays, search.projectIds);
           for (const kind of classes) if (classified[kind].length) {
             selected.push({ id, kind, match: classified[kind][0] });
             if (kind !== 'otherRelated') unchecked.set(id, kind);
@@ -82,13 +87,13 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
           offset += candidates.length;
           const batch = await Promise.allSettled(candidates.map(async ({ id }) => {
             const fresh = await budget.run(() => api.asUser().requestJira(
-              route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`, { headers }));
+              route`/rest/api/3/issue/${id}?fields=summary,status,project&properties=qualityloop`, { headers }));
             if ([403, 404].includes(fresh.status)) { unchecked.delete(id); return null; }
             checkJira(fresh);
             const issue = await budget.run(() => fresh.json());
             unchecked.delete(id);
             if (String(issue.id) !== id) return null;
-            const classified = matchCaptures(nc, [issueCapture(issue)]);
+            const classified = matchCaptures(nc, [issueCapture(issue)], search.lookbackDays, search.projectIds);
             const freshKind = classes.find((name) => classified[name].length);
             return freshKind ? { issue, kind: freshKind, match: classified[freshKind][0] } : null;
           }));

@@ -6,14 +6,14 @@ jest.mock('@forge/resolver', () => ({ __esModule: true, default: class {
 } }));
 jest.mock('@forge/api', () => ({ __esModule: true, default: { asUser: jest.fn() },
   route: (strings, ...values) => strings.reduce((s, part, i) => s + part + (values[i] ?? ''), '') }));
-jest.mock('@forge/kvs', () => ({ ...jest.requireActual('@forge/kvs'), kvs: { entity: jest.fn(), transact: jest.fn() } }));
+jest.mock('@forge/kvs', () => ({ ...jest.requireActual('@forge/kvs'), kvs: { get: jest.fn(), entity: jest.fn(), transact: jest.fn() } }));
 const api = require('@forge/api').default;
 const { kvs } = require('@forge/kvs');
 const { TransactionBuilderImpl } = require('@forge/kvs/out/transaction-api');
 const { handler } = require('../index');
 const context = { extension: { issue: { id: '1' } } };
 const nc = { schemaVersion: 2, recordType: 'NC', partOriginal: 'P-4471-A', failureMode: 'FM-01', detectedDate: '2026-10-31' };
-const issue = (id) => ({ id, key: `QL-${id}`, fields: { summary: 'Visible', status: { name: 'Done', statusCategory: { key: 'done' } } },
+const issue = (id) => ({ id, key: `QL-${id}`, fields: { project: { id: '123', key: 'QL' }, summary: 'Visible', status: { name: 'Done', statusCategory: { key: 'done' } } },
   properties: { qualityloop: id === '1' ? nc : { ...nc, recordType: 'CAPA', closedDate: '2026-10-01' } } });
 const response = (data) => ({ status: 200, ok: true, json: async () => data });
 
@@ -28,6 +28,7 @@ test('SIMULATED 3 CAPAs / 15 legacy decisions: Jira and storage calls, initial a
     records.set(`pair-state/${capaId}:1`, { capaId, issueId: '1', version: 5, state: 'CONCERN_RAISED',
       latestDecisionId: `${capaId}:1:d4`, updatedAt: '2026-10-24T00:00:00Z' });
   }
+  kvs.get.mockImplementation(async () => { counts.storageGet++; return undefined; });
   kvs.entity.mockImplementation((entity) => ({
     get: async (key) => { counts.storageGet++; return records.get(`${entity}/${key}`); },
     query: () => {
@@ -69,9 +70,9 @@ test('SIMULATED 3 CAPAs / 15 legacy decisions: Jira and storage calls, initial a
   expect(Object.values(first.pairs).map((pair) => pair.history.length)).toEqual([5, 5, 5]);
   expect(Object.values(first.pairs).map((pair) => pair.confirmedCount)).toEqual([1, 1, 1]);
   const initial = { ...counts };
-  expect(initial).toEqual({ jira: 8, storageGet: 3, storageQuery: 7, storageTransaction: 3 });
+  expect(initial).toEqual({ jira: 8, storageGet: 4, storageQuery: 7, storageTransaction: 3 });
   for (const key of Object.keys(counts)) counts[key] = 0;
   await handler.loadEvidence({ context });
-  expect(counts).toEqual({ jira: 8, storageGet: 3, storageQuery: 7, storageTransaction: 0 });
+  expect(counts).toEqual({ jira: 8, storageGet: 4, storageQuery: 7, storageTransaction: 0 });
   console.log('SIMULATED 3 CAPAs / 15 decisions:', JSON.stringify({ initial, repeat: counts }));
 });

@@ -7,6 +7,8 @@ import { buildHintJql } from '../lib/hintJql';
 import { HINT_CANDIDATE_LIMIT, selectHints } from '../lib/hints';
 import { registerDecisionResolvers } from './decisions';
 import { readFailureModes } from './failureModes';
+import { searchForIssue } from './searchSettings';
+import { publicSearch } from '../lib/searchSettings';
 
 const resolver = new Resolver();
 
@@ -79,17 +81,23 @@ define('findMatches', [], (issueId) => findMatches(issueId));
 define('findHints', [], async (issueId) => {
   const budget = loadBudget();
   let current;
+  let search;
   let truncated = false;
   const candidates = [];
   try {
-    current = await budget.run(() => readProperty(issueId, 'qualityloop'));
+    const currentResponse = await budget.run(() => api.asUser().requestJira(route`/rest/api/3/issue/${issueId}?fields=project&properties=qualityloop`, { headers }));
+    if ([403, 404].includes(currentResponse.status)) return null;
+    checkJira(currentResponse);
+    const currentIssue = await budget.run(() => currentResponse.json());
+    current = currentIssue.properties?.qualityloop;
     if (current == null) return null;
     if (current.recordType !== 'NC' || !validDate(current.detectedDate)) return { applicable: false };
     if (![1, 2, 3].includes(current.schemaVersion)) return { error: 'This record uses an unsupported schema version.' };
+    search = await searchForIssue(currentIssue, budget);
     const seen = new Set([issueId]);
     // One capped page per query. Never use search totals or search snapshots as
     // evidence, and never let hint candidates enter the match/decision pipeline.
-    for (const jql of buildHintJql(current)) {
+    for (const jql of buildHintJql(current, search.lookbackDays, search.projectIds)) {
       const response = await budget.run(() => api.asUser().requestJira(route`/rest/api/3/search/jql`, {
         method: 'POST', headers,
         body: JSON.stringify({ jql, maxResults: HINT_CANDIDATE_LIMIT, fields: ['id'] }),
@@ -107,7 +115,7 @@ define('findHints', [], async (issueId) => {
       for (let offset = 0; offset < issues.length; offset += 5) {
         const fresh = await Promise.all(issues.slice(offset, offset + 5).map(async ({ id }) => {
           const response = await budget.run(() => api.asUser().requestJira(
-            route`/rest/api/3/issue/${id}?fields=summary,status&properties=qualityloop`,
+            route`/rest/api/3/issue/${id}?fields=summary,status,project&properties=qualityloop`,
             { headers: { Accept: 'application/json' } },
           ));
           if (response.status === 403 || response.status === 404) return null;
@@ -115,16 +123,18 @@ define('findHints', [], async (issueId) => {
           const issue = await budget.run(() => response.json());
           const capture = issue.properties?.qualityloop;
           if (!capture || ![1, 2, 3].includes(capture.schemaVersion)) return null;
-          return { ...capture, id: issue.id, key: issue.key, summary: issue.fields?.summary };
+          return { ...capture, id: issue.id, key: issue.key, projectId: String(issue.fields?.project?.id ?? ''), summary: issue.fields?.summary };
         }));
         candidates.push(...fresh.filter(Boolean));
       }
     }
-    return { applicable: true, ...(truncated ? { incomplete: true, truncated: true } : {}), hints: selectHints({ ...current, id: issueId }, candidates) };
+    return { applicable: true, search: publicSearch(search), ...(truncated ? { incomplete: true, truncated: true } : {}),
+      hints: selectHints({ ...current, id: issueId }, candidates, search.lookbackDays, search.projectIds) };
   } catch (error) {
     if (!(error instanceof BudgetExceeded)) throw error;
     return { applicable: true, incomplete: true, budgetExceeded: true, ...(truncated ? { truncated: true } : {}),
-      hints: current ? selectHints({ ...current, id: issueId }, candidates) : [] };
+      ...(search ? { search: publicSearch(search) } : {}),
+      hints: current && search ? selectHints({ ...current, id: issueId }, candidates, search.lookbackDays, search.projectIds) : [] };
   }
 });
 

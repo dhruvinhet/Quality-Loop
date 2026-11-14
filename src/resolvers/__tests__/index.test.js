@@ -21,7 +21,14 @@ const { handler } = require('../index');
 const requestJira = jest.fn();
 const context = { extension: { issue: { id: '10001' } } };
 const payload = { recordType: 'NC', partNumber: ' p-4471 -a ', failureMode: 'FM-01', detectedDate: '2026-10-31' };
-const response = (status, value) => ({ status, ok: status >= 200 && status < 300, json: async () => value });
+// Model the issue's real project for scoped searches; property reads still use value.
+const response = (status, value) => {
+  const withProject = (issue) => issue?.properties?.qualityloop ? { ...issue, fields: { project: { id: '123', key: 'QL' }, ...issue.fields } } : issue;
+  const body = value && Object.hasOwn(value, 'value')
+    ? { ...value, fields: { project: { id: '123', key: 'QL' } }, properties: { qualityloop: value.value } } : withProject(value);
+  if (body?.issues) body.issues = body.issues.map(withProject);
+  return { status, ok: status >= 200 && status < 300, json: async () => body };
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -63,6 +70,52 @@ test('new schema-v3 custom codes produce a verified strong match through the res
   expect(result.strong).toEqual([expect.objectContaining({ id: '20002', failureMode: 'FM-08' })]);
   expect(JSON.parse(requestJira.mock.calls[1][1].body).jql).toContain('qlFailureMode = "FM-08"');
 });
+
+test('the default sample scope ignores an identical DEMO CAPA in a different project, including after a move', async () => {
+  const definitions = require('../../lib/sampleScenario').sampleDefinitions('2026-11-14');
+  const current = definitions.at(-1).capture;
+  const capa = definitions[1].capture;
+  const local = { id: '20001', key: 'QA-2', fields: { project: { id: '123' }, summary: 'Local DEMO CAPA' }, properties: { qualityloop: capa } };
+  const other = { ...local, id: '20002', key: 'OTHER-2', fields: { project: { id: '456' }, summary: 'Outside-scope DEMO CAPA' } };
+  let moved = false;
+  requestJira.mockImplementation(async (path) => {
+    if (path.includes('/issue/10001?')) return response(200, { fields: { project: { id: '123' } }, properties: { qualityloop: current } });
+    if (path === '/rest/api/3/search/jql') return response(200, { issues: [local, other], isLast: true });
+    return response(200, moved ? { ...local, fields: { ...local.fields, project: { id: '456' } } } : local);
+  });
+  const first = await handler.findMatches({ context });
+  expect(first.strong.map((match) => match.id)).toEqual(['20001']);
+  expect(first.search).toMatchObject({ scope: 'PROJECT', lookbackDays: 365 });
+  expect(JSON.stringify(first)).not.toContain('Outside-scope');
+  expect(requestJira.mock.calls.some(([path]) => path.includes('/issue/20002?'))).toBe(false);
+  moved = true;
+  expect((await handler.findMatches({ context })).strong).toEqual([]);
+});
+
+test.each([['PROJECT', 365, 0], ['PROJECT', 730, 1], ['ALL', 730, 2]])(
+  'NC project settings scope=%s window=%i apply to JQL, direct classification and hints', async (scope, lookbackDays, expected) => {
+    kvs.get.mockImplementation(async (key) => key === 'settings:123'
+      ? { version: 1, scope, lookbackDays, projectIds: [] } : undefined);
+    const current = { schemaVersion: 3, recordType: 'NC', partOriginal: 'DEMO-5520-A', failureMode: 'FM-07', detectedDate: '2026-11-14' };
+    const closedDate = new Date(Date.parse(current.detectedDate) - 400 * 86400000).toISOString().slice(0, 10);
+    const rows = ['123', '456'].map((id) => ({ id: `20${id}`, key: `QA-${id}`, fields: { project: { id } },
+      properties: { qualityloop: { ...current, recordType: 'CAPA', closedDate } } }));
+    requestJira.mockImplementation(async (path) => {
+      if (path.includes('/issue/10001?')) return response(200, { fields: { project: { id: '123' } }, properties: { qualityloop: current } });
+      if (path === '/rest/api/3/search/jql') return response(200, { issues: rows, isLast: true });
+      return response(200, rows.find((row) => path.includes(`/issue/${row.id}?`)));
+    });
+    const matches = await handler.findMatches({ context });
+    expect(matches.strong).toHaveLength(expected);
+    expect(matches.search).toMatchObject({ scope, lookbackDays });
+    expect(kvs.get).toHaveBeenCalledWith('settings:123');
+    expect(kvs.get).not.toHaveBeenCalledWith('settings:456');
+    const jql = JSON.parse(requestJira.mock.calls.find(([path]) => path === '/rest/api/3/search/jql')[1].body).jql;
+    expect(jql.includes('project in ("123")')).toBe(scope === 'PROJECT');
+    const hints = await handler.findHints({ context });
+    expect(hints.search.lookbackDays).toBe(lookbackDays);
+    expect(hints.hints).toHaveLength(lookbackDays === 365 ? 1 : 0);
+  });
 
 test.each([403, 404])('catalogue read hides all metadata when issue access returns %s', async (status) => {
   requestJira.mockResolvedValue(response(status, {}));
@@ -292,12 +345,12 @@ test('findMatches reads the context property, requests enhanced-search propertie
   const result = await handler.findMatches({ context });
   expect(result).toMatchObject({ applicable: true, elapsedMs: expect.any(Number),
     strong: [{ key: 'QL-20002', summary: 'Fresh summary', status: 'Done', rootCause: '', daysSinceClosure: 30 }] });
-  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001/properties/qualityloop');
+  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001?fields=project&properties=qualityloop');
   const [path, options] = requestJira.mock.calls[1];
   expect(path).toBe('/rest/api/3/search/jql');
   expect(options.method).toBe('POST');
-  expect(JSON.parse(options.body)).toMatchObject({ maxResults: 50, fields: ['summary', 'status'], properties: ['qualityloop'] });
-  expect(requestJira.mock.calls[2][0]).toBe('/rest/api/3/issue/20002?fields=summary,status&properties=qualityloop');
+  expect(JSON.parse(options.body)).toMatchObject({ maxResults: 50, fields: ['summary', 'status', 'project'], properties: ['qualityloop'] });
+  expect(requestJira.mock.calls[2][0]).toBe('/rest/api/3/issue/20002?fields=summary,status,project&properties=qualityloop');
   expect(api.asUser).toHaveBeenCalledTimes(5);
 });
 
@@ -306,7 +359,7 @@ test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or st
     .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
     .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
   const result = await handler.findMatches({ context });
-  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, supplierIndexLimited: true, elapsedMs: expect.any(Number) });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, supplierIndexLimited: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, elapsedMs: expect.any(Number) });
   expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
 });
 
@@ -363,7 +416,7 @@ test('findHints uses separate capped enhanced searches and freshly reauthorised 
   };
   let search = 0;
   requestJira.mockImplementation(async (path) => {
-    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path.endsWith('/properties/qualityloop') || path.includes('?fields=project&properties=qualityloop')) return response(200, { value: matchingNc });
     if (path === '/rest/api/3/search/jql') return response(200, {
       issues: [{ id: '10001' }, { id: String(20002 + search++) }, { id: '20002' }],
       nextPageToken: 'must-not-follow', total: 999, fields: { summary: 'STALE' },
@@ -377,7 +430,7 @@ test('findHints uses separate capped enhanced searches and freshly reauthorised 
     ['20003', 'No closed date recorded'],
     ['20004', 'Older precedent: closed 366 days before detection (outside the 365-day window)'],
   ]);
-  expect(Object.keys(result)).toEqual(['applicable', 'incomplete', 'truncated', 'hints']);
+  expect(Object.keys(result)).toEqual(['applicable', 'search', 'incomplete', 'truncated', 'hints']);
   expect(result).toMatchObject({ incomplete: true, truncated: true });
   expect(result.hints.map(({ summary }) => summary)).toEqual([
     'Fresh summary', 'Fresh summary', 'Fresh summary',
@@ -396,30 +449,30 @@ test('findHints uses separate capped enhanced searches and freshly reauthorised 
 test.each([403, 404])('findHints drops denied candidate %s without reading or leaking its body', async (status) => {
   const json = jest.fn();
   requestJira.mockImplementation(async (path) => {
-    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path.endsWith('/properties/qualityloop') || path.includes('?fields=project&properties=qualityloop')) return response(200, { value: matchingNc });
     if (path === '/rest/api/3/search/jql') return response(200, {
       issues: [{ id: '20002', key: 'SECRET', properties: { qualityloop: matchingCapa } }], total: 42,
     });
     return { status, ok: false, json };
   });
-  expect(await handler.findHints({ context })).toEqual({ applicable: true, hints: [] });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, hints: [] });
   expect(json).not.toHaveBeenCalled();
 });
 
 test('findHints rechecks stored values instead of hinting from stale search data', async () => {
   requestJira.mockImplementation(async (path) => {
-    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path.endsWith('/properties/qualityloop') || path.includes('?fields=project&properties=qualityloop')) return response(200, { value: matchingNc });
     if (path === '/rest/api/3/search/jql') return response(200, {
       issues: [{ id: '20002', properties: { qualityloop: { ...matchingCapa, closedDate: null } } }],
     });
     return response(200, freshIssue()); // now a strong match, never a hint
   });
-  expect(await handler.findHints({ context })).toEqual({ applicable: true, hints: [] });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, hints: [] });
 });
 
 test('findHints enforces each search cap even on oversized pages and ignores continuation tokens', async () => {
   requestJira.mockImplementation(async (path) => {
-    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path.endsWith('/properties/qualityloop') || path.includes('?fields=project&properties=qualityloop')) return response(200, { value: matchingNc });
     if (path === '/rest/api/3/search/jql') return response(200, {
       issues: Array.from({ length: 60 }, (_, index) => ({ id: String(20000 + index) })), nextPageToken: 'ignored',
     });
@@ -427,7 +480,7 @@ test('findHints enforces each search cap even on oversized pages and ignores con
     return response(200, freshIssue(id, { ...matchingCapa, closedDate: null }));
   });
   expect((await handler.findHints({ context })).hints).toHaveLength(3);
-  expect(requestJira.mock.calls.filter(([path]) => path.includes('?fields='))).toHaveLength(50);
+  expect(requestJira.mock.calls.filter(([path]) => path.includes('?fields=summary,status,project'))).toHaveLength(50);
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')).toHaveLength(3);
 });
 
@@ -451,10 +504,10 @@ test('hint search errors return an error, never a fabricated empty-hints success
 
 test.each([{ isLast: false }, { nextPageToken: 'more' }, { isLast: true, nextPageToken: 'more' }])('hint continuation %j marks the limited search incomplete and truncated', async (continuation) => {
   requestJira.mockImplementation(async (path) => {
-    if (path.endsWith('/properties/qualityloop')) return response(200, { value: matchingNc });
+    if (path.endsWith('/properties/qualityloop') || path.includes('?fields=project&properties=qualityloop')) return response(200, { value: matchingNc });
     return response(200, { issues: [], ...continuation });
   });
-  expect(await handler.findHints({ context })).toEqual({ applicable: true, incomplete: true, truncated: true, hints: [] });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, incomplete: true, truncated: true, hints: [] });
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')).toHaveLength(3);
   expect(requestJira.mock.calls.some(([, options]) => options?.body && JSON.parse(options.body).nextPageToken)).toBe(false);
 });

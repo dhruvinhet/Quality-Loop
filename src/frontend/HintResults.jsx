@@ -4,6 +4,7 @@ import { HINT_CANDIDATE_LIMIT, HINT_LIMIT } from '../lib/hints';
 import { failureModeLabel } from '../lib/failureModes';
 
 export default function HintResults({ result, failureModes }) {
+  const lookbackDays = result?.search?.lookbackDays ?? 365;
   const hasHints = (result?.hints?.length ?? 0) > 0;
   const [expanded, setExpanded] = useState(hasHints);
   useEffect(() => { setExpanded(hasHints); }, [hasHints]);
@@ -17,7 +18,7 @@ export default function HintResults({ result, failureModes }) {
     ? <Stack space="space.200">{notices}</Stack> : null;
   return <Stack space="space.200">
     <SectionMessage appearance="information">
-      <Text>{`Up to ${HINT_LIMIT} hints, from limited searches (at most ${HINT_CANDIDATE_LIMIT} candidates each): near-identical part numbers, same part with no closed date, and older precedents. These are not matches.`}</Text>
+      <Text>{`Up to ${HINT_LIMIT} hints, from limited searches (at most ${HINT_CANDIDATE_LIMIT} candidates each): near-identical part numbers within ${lookbackDays} days, same part with no closed date, and older precedents outside the ${lookbackDays}-day window. These are not matches.`}</Text>
       <Text>These records do not meet the matching rules, but may still be worth a manual review. Only records you can browse are shown.</Text>
     </SectionMessage>
     {notices}

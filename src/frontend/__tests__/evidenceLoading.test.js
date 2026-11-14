@@ -6,6 +6,7 @@ const { invoke } = require('@forge/bridge');
 const MatchView = require('../MatchView').default;
 const EvidenceResults = require('../EvidenceResults').default;
 const { EvidenceCard } = require('../EvidenceResults');
+const { EvidenceHeading } = require('../EvidenceResults');
 const DecisionDetails = require('../DecisionDetails').default;
 const nodes = (element) => element == null || typeof element === 'boolean' ? [] : Array.isArray(element) ? element.flatMap(nodes)
   : [element, ...(element.props ? nodes(element.props.children) : [])];
@@ -14,6 +15,22 @@ beforeEach(() => {
   jest.spyOn(React, 'useRef').mockImplementation((value) => ({ current: value }));
 });
 afterEach(() => { jest.restoreAllMocks(); jest.clearAllMocks(); });
+
+test.each([90, 365, 730, 1095])('evidence heading and both panel modes disclose the applied %i-day window', (lookbackDays) => {
+  const search = { scope: 'LISTED', lookbackDays };
+  expect(nodes(EvidenceHeading({ search }))).toContain(`Searching this project + listed projects · CAPAs closed 1–${lookbackDays} days before detection`);
+  for (const readOnly of [true, false]) {
+    const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [], search }, readOnly }));
+    expect(tree.find((node) => node.type === EvidenceHeading).props.search).toEqual(search);
+    expect(tree).toContain(`No closed CAPA with this part and failure mode in the last ${lookbackDays} days`);
+  }
+});
+test.each([['PROJECT', 0, true], ['PROJECT', 1, false], ['LISTED', 0, false], ['ALL', 0, false]])(
+  'local-only no-match guidance: scope=%s related=%i show=%s', (scope, related, shown) => {
+    const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: Array.from({ length: related }, () => ({ id: '2' })),
+      otherRelated: [], search: { scope, lookbackDays: 365 } } }));
+    expect(tree.includes('Only this project was searched. A project admin can include other projects in QualityLoop settings.')).toBe(shown);
+  });
 test('MatchView uses one loadEvidence invocation and keeps hints separate', async () => {
   let cleanup;
   jest.spyOn(React, 'useEffect').mockImplementation((effect) => { cleanup = effect(); });

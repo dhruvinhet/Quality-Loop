@@ -1,6 +1,8 @@
 import { validDate } from './capture';
 import { matchCaptures, windowStart } from './match';
 import { normalise, normaliseText } from './normalise';
+import { lookbackDays as defaultLookbackDays } from '../config/matching';
+import { inProjectScope } from './searchSettings';
 
 export const HINT_LIMIT = 3;
 export const HINT_CANDIDATE_LIMIT = 50;
@@ -30,17 +32,17 @@ export function excludeMatchedHints(hints, matches) {
     (id && String(match.id) === String(id)) || (key && match.key === key)));
 }
 
-export function selectHints(current, candidates) {
+export function selectHints(current, candidates, lookbackDays = defaultLookbackDays, projectIds) {
   if (current?.recordType !== 'NC' || !validDate(current.detectedDate) ||
       !text(current.partOriginal).trim() || !text(current.failureMode).trim()) return [];
-  const start = windowStart(current.detectedDate);
+  const start = windowStart(current.detectedDate, lookbackDays);
   const nc = normalise(current.partOriginal);
   const mode = normaliseText(current.failureMode);
   const compact = compactPart(current.partOriginal);
-  const matches = matchCaptures(current, candidates);
+  const matches = matchCaptures(current, candidates, lookbackDays, projectIds);
   const hints = [];
   for (const candidate of excludeMatchedHints(candidates.filter(Boolean), matches)) {
-    if (!candidate || candidate.recordType !== 'CAPA' || !text(candidate.partOriginal).trim() ||
+    if (!candidate || !inProjectScope(candidate.projectId, projectIds) || candidate.recordType !== 'CAPA' || !text(candidate.partOriginal).trim() ||
         (current.id != null && String(candidate.id) === String(current.id)) ||
         (current.key && current.key === candidate.key) ||
         normaliseText(text(candidate.failureMode)) !== mode) continue;
@@ -55,7 +57,7 @@ export function selectHints(current, candidates) {
       reason = 'No closed date recorded'; priority = 1;
     } else if (part.partNorm === nc.partNorm && validDate(closed) && closed < start) {
       const days = (Date.parse(`${current.detectedDate}T00:00:00Z`) - Date.parse(`${closed}T00:00:00Z`)) / 86400000;
-      reason = `Older precedent: closed ${days} days before detection (outside the 365-day window)`; priority = 2;
+      reason = `Older precedent: closed ${days} days before detection (outside the ${lookbackDays}-day window)`; priority = 2;
     } else continue;
     hints.push({ id: String(candidate.id ?? ''), key: text(candidate.key), summary: text(candidate.summary),
       partOriginal: candidate.partOriginal, failureMode: candidate.failureMode,

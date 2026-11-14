@@ -1,3 +1,4 @@
+jest.mock('@forge/kvs', () => ({ kvs: { get: jest.fn(async () => undefined) } }));
 // SIMULATED: mocked Jira latency, permissions, pagination and CAPA populations.
 jest.mock('@forge/resolver', () => ({ __esModule: true, default: class {
   definitions = {};
@@ -17,7 +18,7 @@ const { findMatches } = require('../evidence');
 const store = require('../decisionStore');
 const context = { extension: { issue: { id: '1' } } };
 const nc = { schemaVersion: 2, recordType: 'NC', partOriginal: 'P-4471-A', supplier: 'Supplier', failureMode: 'FM-01', detectedDate: '2026-10-31' };
-const issue = (id, capture) => ({ id: String(id), key: `QL-${id}`, fields: { summary: 'Visible', status: { name: 'Done' } }, properties: { qualityloop: capture } });
+const issue = (id, capture) => ({ id: String(id), key: `QL-${id}`, fields: { project: { id: '123', key: 'QL' }, summary: 'Visible', status: { name: 'Done' } }, properties: { qualityloop: capture } });
 const response = (status, data) => ({ status, ok: status >= 200 && status < 300, json: jest.fn(async () => data) });
 let requestJira;
 let hidden;
@@ -73,7 +74,7 @@ test.each([
   expect(result.notShown).toEqual({ strong: n >= 500 ? 75 : 0, relatedRevision: n >= 500 ? 75 : 0 });
   for (const [path, options] of requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')) {
     expect(path).toBe('/rest/api/3/search/jql');
-    expect(JSON.parse(options.body)).toMatchObject({ properties: ['qualityloop'], fields: ['summary', 'status'] });
+    expect(JSON.parse(options.body)).toMatchObject({ properties: ['qualityloop'], fields: ['summary', 'status', 'project'] });
   }
 });
 
@@ -88,7 +89,7 @@ test('SIMULATED 25-card cap selects most recent closures before direct reads', a
     expect(result[kind].at(-1).closedDate).toBe('2026-10-06');
     expect(result.notShown[kind]).toBe(5);
   }
-  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
+  const directIds = requestJira.mock.calls.filter(([path]) => !path.includes('?fields=project&')).map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
   expect(directIds).toHaveLength(51); // 50 displayed CAPAs + context NC
   expect(directIds).not.toContain('100');
   expect(directIds).not.toContain('130');
@@ -145,7 +146,7 @@ test.each(['strong', 'relatedRevision'])('SIMULATED reclassification into %s ret
   expect(result.notShown).toEqual(destination === 'strong' ? { strong: 5, relatedRevision: 0 } : { strong: 0, relatedRevision: 30 });
   expect(result.verifiedNotShown[destination]).toBe(destination === 'strong' ? 30 : 5);
   expect(result.uncheckedCandidates).toBe(true);
-  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
+  const directIds = requestJira.mock.calls.filter(([path]) => !path.includes('?fields=project&')).map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter(Boolean);
   expect(new Set(directIds).size).toBe(directIds.length);
   expect(sourceRows.slice(25).every(({ id }) => undisplayed.has(id))).toBe(true);
 });
@@ -210,12 +211,12 @@ test.each([429, 500, 503])('SIMULATED HTTP %i maps to busy/retry with no retry l
 });
 test.each([429, 500, 503])('SIMULATED selected-card HTTP %i also reports busy without stale evidence', async (status) => {
   seed(5);
-  failure = { path: '/rest/api/3/issue/100?fields=summary,status&properties=qualityloop', status };
+  failure = { path: '/rest/api/3/issue/100?fields=summary,status,project&properties=qualityloop', status };
   expect(await handler.loadEvidence({ context })).toEqual({ error: 'Jira is busy, retry the request.' });
   expect(requestJira.mock.calls.filter(([path]) => path === failure.path)).toHaveLength(1);
 });
 test.each([429, 500, 503])('SIMULATED context-property HTTP %i reports busy before searching', async (status) => {
-  failure = { path: '/rest/api/3/issue/1/properties/qualityloop', status };
+  failure = { path: '/rest/api/3/issue/1?fields=project&properties=qualityloop', status };
   expect(await handler.loadEvidence({ context })).toEqual({ error: 'Jira is busy, retry the request.' });
   expect(requestJira).toHaveBeenCalledTimes(1);
 });
@@ -224,7 +225,7 @@ test('SIMULATED search values that do not classify cause no candidate GETs', asy
   for (const row of corpus) row.properties.qualityloop.closedDate = nc.detectedDate;
   const result = await handler.loadEvidence({ context });
   expect(result).toMatchObject({ strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: true });
-  expect(requestJira.mock.calls.filter(([path]) => /issue\/\d+\?/.test(path))).toHaveLength(1); // NC only
+  expect(requestJira.mock.calls.filter(([path]) => /issue\/\d+\?/.test(path) && !path.includes('?fields=project&'))).toHaveLength(1); // NC only
 });
 test.each([403, 404])('SIMULATED search HTTP %i returns nothing', async (status) => {
   failure = { path: '/rest/api/3/search/jql', status };
@@ -244,7 +245,7 @@ test('SIMULATED time budget keeps only completed verified batches and stops issu
   expect(result.incomplete).toBe(true);
   expect(result.strong.length + result.relatedRevision.length).toBe(5);
   expect(result.otherRelated).toEqual([]);
-  expect(requestJira.mock.calls.filter(([path]) => path.includes('/issue/') && path.includes('?'))).toHaveLength(10);
+  expect(requestJira.mock.calls.filter(([path]) => path.includes('/issue/') && path.includes('?') && !path.includes('?fields=project&'))).toHaveLength(10);
 });
 test('SIMULATED a hanging Jira read ends at 15 seconds, below the UI limit', async () => {
   jest.useFakeTimers();
@@ -278,7 +279,7 @@ test.each(['strong', 'relatedRevision'])('SIMULATED %s refills from the 26th can
   expect(result[kind].map(({ id }) => id)).toEqual(['125']);
   expect(result).toMatchObject({ notShown: { strong: 0, relatedRevision: 0 }, uncheckedCandidates: false, incomplete: false });
   expect(maximum).toBe(5);
-  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter((id) => id && id !== '1');
+  const directIds = requestJira.mock.calls.filter(([path]) => !path.includes('?fields=project&')).map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter((id) => id && id !== '1');
   expect(directIds).toHaveLength(26);
   expect(new Set(directIds).size).toBe(26);
   expect(JSON.stringify(result)).not.toContain('SECRET');
@@ -306,7 +307,7 @@ test.each(['strong', 'relatedRevision'])('SIMULATED %s counts only unchecked sna
   expect(result[kind].at(-1).id).toBe('129');
   expect(result.notShown[kind]).toBe(30);
   expect(result.uncheckedCandidates).toBe(true);
-  const directIds = requestJira.mock.calls.map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter((id) => id && id !== '1');
+  const directIds = requestJira.mock.calls.filter(([path]) => !path.includes('?fields=project&')).map(([path]) => path.match(/issue\/(\d+)\?/)?.[1]).filter((id) => id && id !== '1');
   expect(directIds).toHaveLength(30);
   expect(directIds).not.toContain('130');
   expect(JSON.stringify(result)).not.toMatch(/SECRET|987654|total/);

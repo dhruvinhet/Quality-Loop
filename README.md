@@ -13,7 +13,7 @@ QualityLoop presents possible recurrence evidence rather than declaring that a C
 | Step | What happens |
 |---|---|
 | **Capture** | An issue panel stores record type (NC or CAPA), part number, failure mode, supplier, line, dates and an effectiveness-evidence link in one issue property (`qualityloop`). |
-| **Match** | After a successful NC panel save, Jira is searched *as the viewing user*. Strong matches require the same normalised part number and failure mode, with a recorded QualityLoop closure date 1–365 days before detection; Jira status does not establish closure. An otherwise eligible different revision of the same base part is shown separately as a related revision. |
+| **Match** | After a successful NC panel save, Jira is searched *as the viewing user*, within the NC project's configured scope and look-back window (defaults: this project only, 365 days). Strong matches require the same normalised part number and failure mode, with a recorded QualityLoop closure date 1–N days before detection; Jira status does not establish closure. An otherwise eligible different revision of the same base part is shown separately as a related revision. |
 | **Inspect** | Each card shows the matched fields, closure date, days since closure and whether effectiveness evidence was recorded. Strong and revision cards warn when Jira is outside the Done category. The most recent 25 of each class are displayed, with omitted visible matches disclosed. |
 | **Hints** | "Not matched — check these" can show up to three hints from limited searches: near-identical part numbers, CAPAs with no closed date and older precedents, with the same normalised failure mode. These are never treated as matches. |
 | **Decide** | The engineer records Engineer-confirmed recurrence, Not a recurrence (with a category) or Effectiveness concern. A confirmed follow-up includes a description with the NC linked using the Jira site URL (or plain text when the site URL is unavailable), reason and safe evidence, plus Relates links to both NC and CAPA. The dialog names the selected issue type and intended assignee. Task is preferred; the first non-subtask standard type is the fallback. Missing Relates permits explicitly confirmed unlinked creation. Partial results retain the task key and offer Verify link to repair the empty description and missing links without creating another issue. Interrupted creates retain the separate, confirmed task-key recovery flow. |
@@ -84,6 +84,50 @@ flowchart LR
 
 ## Matching rules
 
+### Project search settings
+
+Open a project's **QualityLoop** tab: **Search settings** appears below **How to
+try this**. Anyone who can browse the project can see its settings. Changes
+require **Administer Projects** on that exact project, checked as the acting user
+in the resolver. This is separate from the site-wide failure-mode catalogue's
+Jira administrator permission.
+
+- **This project only** is the default. It keeps the default DEMO sample scoped
+  to its own project even if another project has identical DEMO part numbers.
+- **This project + listed projects** includes the NC's project and up to 20
+  additional project keys entered with spaces or commas. The server validates
+  that the keys exist and are browsable by the admin, then stores stable project
+  IDs. Unknown/inaccessible keys produce a clear error without revealing whether
+  an inaccessible project exists. Only listed project keys the current viewer
+  can browse are displayed or included in searches. Saving replaces the list.
+- **All projects I can browse** searches with the viewing user's Jira access.
+  It never grants project or issue-security access.
+- **Look-back window:** 90, **365 (default)**, 730 or 1095 days. The eligible
+  range is 1 through the selected number of days before detection, inclusive.
+
+Settings live at installation-scoped KVS `settings:<projectId>` with scope,
+listed project IDs, lookbackDays and an edit revision. The **NC's project**
+selects the settings, including for CAPAs in another project. Match,
+other-related and hint JQL, fresh in-memory classification, and the decision
+resolver's eligibility recheck all use them. Listed queries include a quoted
+`project in (...)` restriction; all-project searches rely on asUser access.
+Invalid/unavailable settings fail closed rather than widening a search.
+
+Project settings contain scope, project IDs, window and revision, not issue
+content. The existing Data health cleanup handles NC/CAPA decision records, not
+these settings keys; a deleted project's settings may remain in KVS.
+
+Evidence headings in the panel and side view show the applied scope and window.
+Local-only searches with no strong/revision match explain how a project admin
+can widen the search. Hints use the configured window; older-precedent hints
+remain clearly outside that window. Refresh evidence on open NCs after changing
+settings. Existing decision history remains visible subject to browse access,
+even when its CAPA is no longer in the current matching scope.
+
+The pure evaluation keeps its fixed 365-day default and does not load site KVS
+settings; frozen data and the reported evaluation remain unchanged. Historical
+CAPA import is deferred.
+
 ### Site failure-mode catalogue
 
 The default seed in `src/config/failureModes.js` follows the synthetic automotive
@@ -121,7 +165,7 @@ or uncertain save rather than overwriting another edit.
 
 1. Normalisation trims whitespace, collapses inner whitespace and converts to uppercase. Part numbers additionally follow the named rule **spaces around hyphens are removed**: `SM-6604 -A` and `SM-6604-A` are equal after normalisation. This is deterministic formatting normalisation, not fuzzy matching; failure-mode text normalisation is unchanged. `partOriginal` preserves the input part number, and cards use it for display.
 2. The current revision pattern is a trailing `-<1–2 letters>` suffix of the normalised part. An otherwise eligible different revision of the same base part, with the same failure mode, is a **related revision**, never an exact match.
-3. A strong or related-revision match needs a recorded QualityLoop closed date between 1 and 365 days before the NC's detection date. Jira status is not a matching gate.
+3. A strong or related-revision match needs a recorded QualityLoop closed date between 1 and the NC project's lookbackDays (365 by default) before detection, within its configured project scope. Jira status is not a matching gate.
 4. Supplier and line do not affect strong or related-revision matches. Supplier can affect **Other related records**; line supplies supporting facts.
 5. Strong and related-revision matching use no fuzzy comparisons. Limited, labelled hints can surface some part-number typos; they do not cover every typo.
 
