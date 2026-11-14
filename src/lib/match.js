@@ -16,11 +16,11 @@ export function windowStart(detectedDate, lookbackDays = defaultLookbackDays) {
 
 // Captures are flat; candidates add id, key, summary and status. Jira status is
 // evidence only: the recorded closedDate defines closure for these rules.
-export function matchCaptures(current, candidates, lookbackDays = defaultLookbackDays, projectIds) {
+export function matchCaptures(current, candidates, lookbackDays = defaultLookbackDays, projectIds, revisionPreset) {
   const classes = { strong: [], relatedRevision: [], otherRelated: [] };
   if (current?.recordType !== 'NC' || !validDate(current.detectedDate) || !text(current.partOriginal).trim()) return classes;
   const start = windowStart(current.detectedDate, lookbackDays);
-  const nc = normalise(current.partOriginal);
+  const nc = normalise(current.partOriginal, revisionPreset);
   const failureMode = normaliseText(text(current.failureMode));
   for (const candidate of candidates) {
     if (!candidate || !inProjectScope(candidate.projectId, projectIds) || candidate.recordType !== 'CAPA' ||
@@ -28,7 +28,7 @@ export function matchCaptures(current, candidates, lookbackDays = defaultLookbac
         (current.key && candidate.key === current.key) ||
         !text(candidate.partOriginal).trim() || !validDate(candidate.closedDate) ||
         candidate.closedDate >= current.detectedDate || candidate.closedDate < start) continue;
-    const part = normalise(candidate.partOriginal);
+    const part = normalise(candidate.partOriginal, revisionPreset);
     const sameFailureMode = !!failureMode && normaliseText(text(candidate.failureMode)) === failureMode;
     // Recompute from originals even for v3: direct property edits may leave stale norms.
     const supplier = normaliseText(text(current.supplier));

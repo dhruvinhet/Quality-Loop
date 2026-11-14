@@ -40,7 +40,7 @@ test('admin changes scope/window and submits latest pasted keys without controll
   tree.find((node) => node.type === 'Select' && node.props.id === 'search-window').props.onChange({ value: 730 });
   invoke.mockResolvedValueOnce({ ...saved, settings: { scope: 'LISTED', lookbackDays: 730, version: 1 }, listedProjectKeys: ['OPS', 'SUP'] });
   await tree.find((node) => node.type === 'Form').props.onSubmit();
-  expect(invoke).toHaveBeenLastCalledWith('saveProjectSearchSettings', { scope: 'LISTED', lookbackDays: 730, projectKeys: 'OPS, SUP', expectedVersion: 0 });
+  expect(invoke).toHaveBeenLastCalledWith('saveProjectSearchSettings', { scope: 'LISTED', lookbackDays: 730, projectKeys: 'OPS, SUP', expectedVersion: 0, revisionPreset: 'LETTERS' });
   expect(render()).toContain('Searching this project + listed projects · CAPAs closed 1–730 days before detection');
 });
 test('unknown listed keys surface the server error, while a transport failure is sanitized', async () => {
@@ -52,4 +52,24 @@ test('unknown listed keys surface the server error, while a transport failure is
   invoke.mockRejectedValueOnce(new Error('Private transport detail'));
   await button(tree, 'Refresh search settings').props.onClick();
   expect(render()).not.toContain('Private transport detail');
+});
+
+
+test('preset examples are visible, editable only for admins and submitted with the same version', async () => {
+  let tree = await load({ ...saved, settings: { ...saved.settings, revisionPreset: 'R_DIGITS', version: 7 } });
+  const select = tree.find((node) => node.type === 'Select' && node.props.id === 'revision-preset');
+  expect(select.props.options.map((option) => option.label)).toEqual([
+    'Trailing -1–2 letters (P-100-AA → P-100 / AA)',
+    'Trailing -1–3 letters or digits (P-100-01 → P-100 / 01)',
+    'Trailing -R + digits (P-100-R12 → P-100 / R12)',
+    'No revision split (P-100-A stays P-100-A)',
+  ]);
+  expect(select.props.value.value).toBe('R_DIGITS');
+  select.props.onChange({ value: 'NONE' });
+  invoke.mockResolvedValueOnce({ ...saved, settings: { ...saved.settings, revisionPreset: 'NONE', version: 8 } });
+  await tree.find((node) => node.type === 'Form').props.onSubmit();
+  expect(invoke).toHaveBeenLastCalledWith('saveProjectSearchSettings', expect.objectContaining({ revisionPreset: 'NONE', expectedVersion: 7 }));
+  tree = await load({ ...saved, canAdmin: false, settings: { ...saved.settings, revisionPreset: 'NONE' } });
+  expect(tree).toContain('Revision preset: No revision split (P-100-A stays P-100-A)');
+  expect(tree.some((node) => node.type === 'Select')).toBe(false);
 });

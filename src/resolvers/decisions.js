@@ -3,7 +3,7 @@ import { concernAllowed, followupConfirmation, validIssueId, validateDecision, n
 import { claimTask, commitDecision, getPairState, queryRecords, pairConfirmed, PAIR_ENTITY, DECISION_ENTITY, readDecision, saveTaskMetadata, saveTaskLinked } from './decisionStore';
 import { matchCaptures } from '../lib/match';
 import { issueCapture } from './evidence';
-import { searchForIssue } from './searchSettings';
+import { readSearchSettings, searchForIssue } from './searchSettings';
 import { selectSampleIssueType } from '../lib/sampleScenario';
 import { BudgetExceeded, checkJira, loadBudget } from './loadBudget';
 import { FOLLOWUP_PROPERTY, followupMarker, followupDescription, jiraSiteOrigin, descriptionPreview, hasDescription, hasCapaLink, isRecoveryTask, recoveryConfirmation, recoveryJql, recoveryMarkerKind, repairLinkConfirmation } from '../lib/followup';
@@ -95,8 +95,10 @@ const noCreateMessage = (project) => `Recorded. You can't create tasks in ${proj
 
 export function registerDecisionResolvers({ define, findMatches }) {
   define('getPanelAccess', [], async (issueId) => {
-    if (!await getIssue(issueId)) return null;
-    return { canEdit: await canEdit(issueId) };
+    const issue = await getIssue(issueId);
+    if (!issue) return null;
+    const settings = await readSearchSettings(issue.fields?.project?.id);
+    return { canEdit: await canEdit(issueId), revisionPreset: settings.revisionPreset };
   });
 
   define('recordDecision', ['capaId', 'expectedVersion', 'type', 'reason', 'reasonCategory', 'evidenceLinks'], async (issueId, payload, context) => {
@@ -110,7 +112,7 @@ export function registerDecisionResolvers({ define, findMatches }) {
     const authorAccountId = context?.accountId;
     if (typeof authorAccountId !== 'string' || !authorAccountId.trim()) return { error: 'Your account context is unavailable. Reopen the issue.' };
     const search = await searchForIssue(currentIssue);
-    const matches = matchCaptures(issueCapture(currentIssue), [issueCapture(capaIssue)], search.lookbackDays, search.projectIds);
+    const matches = matchCaptures(issueCapture(currentIssue), [issueCapture(capaIssue)], search.lookbackDays, search.projectIds, search.revisionPreset);
     const capa = [...(matches.strong ?? []), ...(matches.relatedRevision ?? [])].find(({ id }) => id === payload.capaId);
     if (!capa) return { error: 'This CAPA is no longer a strong or related revision match. Reload the evidence.' };
     // Check transition with the direct read again inside commitDecision, after the

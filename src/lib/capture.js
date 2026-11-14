@@ -45,11 +45,11 @@ export function validateCapture(input = {}, modes = FAILURE_MODES, storedFailure
   return errors;
 }
 
-export function buildCapture(input, now = new Date().toISOString()) {
+export function buildCapture(input, now = new Date().toISOString(), revisionPreset) {
   return {
     schemaVersion: 3,
     recordType: input.recordType,
-    ...normalise(input.partNumber),
+    ...normalise(input.partNumber, revisionPreset),
     failureMode: normaliseText(input.failureMode),
     supplier: input.supplier ?? '',
     supplierNorm: normaliseText(input.supplier ?? ''),

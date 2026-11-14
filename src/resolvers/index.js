@@ -7,7 +7,7 @@ import { buildHintJql } from '../lib/hintJql';
 import { HINT_CANDIDATE_LIMIT, selectHints } from '../lib/hints';
 import { registerDecisionResolvers } from './decisions';
 import { readFailureModes } from './failureModes';
-import { searchForIssue } from './searchSettings';
+import { readSearchSettings, searchForIssue } from './searchSettings';
 import { publicSearch } from '../lib/searchSettings';
 
 const resolver = new Resolver();
@@ -129,12 +129,12 @@ define('findHints', [], async (issueId) => {
       }
     }
     return { applicable: true, search: publicSearch(search), ...(truncated ? { incomplete: true, truncated: true } : {}),
-      hints: selectHints({ ...current, id: issueId }, candidates, search.lookbackDays, search.projectIds) };
+      hints: selectHints({ ...current, id: issueId }, candidates, search.lookbackDays, search.projectIds, search.revisionPreset) };
   } catch (error) {
     if (!(error instanceof BudgetExceeded)) throw error;
     return { applicable: true, incomplete: true, budgetExceeded: true, ...(truncated ? { truncated: true } : {}),
       ...(search ? { search: publicSearch(search) } : {}),
-      hints: current && search ? selectHints({ ...current, id: issueId }, candidates, search.lookbackDays, search.projectIds) : [] };
+      hints: current && search ? selectHints({ ...current, id: issueId }, candidates, search.lookbackDays, search.projectIds, search.revisionPreset) : [] };
   }
 });
 
@@ -142,19 +142,21 @@ define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {
   // Read the issue with its property so a missing property is distinct from an
   // inaccessible issue (both can be 404 on the property endpoint).
   const response = await api.asUser().requestJira(
-    route`/rest/api/3/issue/${issueId}?fields=summary&properties=qualityloop`,
+    route`/rest/api/3/issue/${issueId}?fields=summary,project&properties=qualityloop`,
     { headers: { Accept: 'application/json' } },
   );
   if (response.status === 403 || response.status === 404) return null;
   checkJira(response);
-  const stored = (await response.json()).properties?.qualityloop;
+  const issue = await response.json();
+  const stored = issue.properties?.qualityloop;
   if (stored?.recordType && payload.recordType !== stored.recordType) {
     return { error: 'Record type cannot be changed after the first save. Create a new issue instead.' };
   }
   const catalogue = await readFailureModes(); // One authoritative read per save invocation.
   const fieldErrors = validateCapture(payload, catalogue.modes, stored?.failureMode);
   if (Object.keys(fieldErrors).length) return { fieldErrors };
-  const record = buildCapture(payload);
+  const settings = await readSearchSettings(issue.fields?.project?.id);
+  const record = buildCapture(payload, undefined, settings.revisionPreset);
   if (Buffer.byteLength(JSON.stringify(record), 'utf8') > 32768) {
     return { error: 'The record exceeds the Jira issue property size limit.' };
   }

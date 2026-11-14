@@ -97,7 +97,7 @@ afterEach(() => jest.restoreAllMocks());
 
 test('panel loads EDIT_ISSUES in current issue context and non-editors receive read-only access', async () => {
   edit = false;
-  expect(await handler.getPanelAccess({ context })).toEqual({ canEdit: false });
+  expect(await handler.getPanelAccess({ context })).toEqual({ canEdit: false, revisionPreset: 'LETTERS' });
   expect(requestJira.mock.calls.map(([path]) => path)).toContain('/rest/api/3/mypermissions?issueId=10001&permissions=EDIT_ISSUES');
   hidden.add('10001');
   expect(await handler.getPanelAccess({ context })).toBeNull();
@@ -1037,4 +1037,25 @@ test('an unrelated required field alongside description rejection never retries 
   await handler.createConcernTask({ context, payload: followup });
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/issue')).toHaveLength(1);
   expect(store.saveTaskMetadata).not.toHaveBeenCalled();
+});
+
+
+test('panel preview settings come from the current issue project', async () => {
+  kvs.get.mockImplementation(async (key) => key === 'settings:123'
+    ? { version: 3, scope: 'PROJECT', lookbackDays: 365, projectIds: [], revisionPreset: 'NONE' } : undefined);
+  expect(await handler.getPanelAccess({ context })).toEqual({ canEdit: true, revisionPreset: 'NONE' });
+  expect(kvs.get).toHaveBeenCalledWith('settings:123');
+});
+
+test.each([['R_DIGITS', true], ['NONE', false]])('decision eligibility recheck uses current NC preset %s, allowed=%s', async (revisionPreset, allowed) => {
+  current = { ...nc, partOriginal: 'P-100-R12', partBase: 'OLD' };
+  captured = { ...capa, partOriginal: 'P-100-R13', partBase: 'OTHER-OLD' };
+  kvs.get.mockImplementation(async (key) => key === 'settings:123'
+    ? { version: 3, scope: 'PROJECT', lookbackDays: 365, projectIds: [], revisionPreset } : undefined);
+  const result = await handler.recordDecision({ context, payload });
+  if (allowed) expect(store.commitDecision).toHaveBeenCalled();
+  else {
+    expect(store.commitDecision).not.toHaveBeenCalled();
+    expect(result.error).toContain('no longer a strong or related revision match');
+  }
 });

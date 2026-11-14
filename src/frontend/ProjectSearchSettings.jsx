@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Button, Form, Heading, Label, SectionMessage, Select, Stack, Text, Textfield } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import { LOOKBACK_OPTIONS, SEARCH_SCOPES, searchDescription, SETTINGS_PERMISSION_MESSAGE } from '../lib/searchSettings';
+import { DEFAULT_REVISION_PRESET, REVISION_PRESETS } from '../config/partPattern';
 import { callPage } from './pageRunner';
 
 const WINDOWS = LOOKBACK_OPTIONS.map((value) => ({ value, label: `${value} days` }));
@@ -9,15 +10,16 @@ export default function ProjectSearchSettings() {
   const [data, setData] = useState(null);
   const [scope, setScope] = useState('PROJECT');
   const [window, setWindow] = useState(365);
+  const [preset, setPreset] = useState(DEFAULT_REVISION_PRESET);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
   const [formKey, setFormKey] = useState(0);
-  const draft = useRef({ scope: 'PROJECT', lookbackDays: 365, projectKeys: '' });
+  const draft = useRef({ scope: 'PROJECT', lookbackDays: 365, projectKeys: '', revisionPreset: DEFAULT_REVISION_PRESET });
   const pending = useRef(false);
   function accept(result) {
     if (!result?.settings) throw new Error(result?.error || 'Search settings are unavailable. Check project access and refresh.');
-    setData(result); setScope(result.settings.scope); setWindow(result.settings.lookbackDays);
-    draft.current = { scope: result.settings.scope, lookbackDays: result.settings.lookbackDays, projectKeys: result.listedProjectKeys.join(', ') };
+    setData(result); setScope(result.settings.scope); setWindow(result.settings.lookbackDays); setPreset(result.settings.revisionPreset ?? DEFAULT_REVISION_PRESET);
+    draft.current = { scope: result.settings.scope, lookbackDays: result.settings.lookbackDays, projectKeys: result.listedProjectKeys.join(', '), revisionPreset: result.settings.revisionPreset ?? DEFAULT_REVISION_PRESET };
     setFormKey((key) => key + 1);
   }
   async function refresh() {
@@ -40,10 +42,11 @@ export default function ProjectSearchSettings() {
   }
   return <Stack space="space.200">
     <Heading size="small" as="h2">Search settings</Heading>
-    <Text>The NC's project chooses the scope and look-back window. Searches always use the viewing user's Jira access.</Text>
+    <Text>The NC's project chooses the scope, look-back window and revision preset. Searches always use the viewing user's Jira access.</Text>
     <Button isDisabled={busy} onClick={refresh}>Refresh search settings</Button>
     {data && <>
       <Text>{searchDescription(data.settings)}</Text>
+      <Text>{`Revision preset: ${REVISION_PRESETS.find((option) => option.value === (data.settings.revisionPreset ?? DEFAULT_REVISION_PRESET)).label}`}</Text>
       {data.settings.scope === 'LISTED' && <Text>{`Listed projects you can browse: ${data.listedProjectKeys.join(', ') || 'none shown'}`}</Text>}
       {!data.canAdmin && <Text>{SETTINGS_PERMISSION_MESSAGE}</Text>}
     </>}
@@ -61,6 +64,10 @@ export default function ProjectSearchSettings() {
         <Label labelFor="search-window">Look-back window</Label>
         <Select id="search-window" options={WINDOWS} value={WINDOWS.find((option) => option.value === window)} isDisabled={busy}
           onChange={(option) => { if (option) { draft.current.lookbackDays = option.value; setWindow(option.value); setMessage(null); } }} />
+        <Label labelFor="revision-preset">Revision split for this project</Label>
+        <Select id="revision-preset" options={REVISION_PRESETS} value={REVISION_PRESETS.find((option) => option.value === preset)} isDisabled={busy}
+          onChange={(option) => { if (option) { draft.current.revisionPreset = option.value; setPreset(option.value); setMessage(null); } }} />
+        <Text>Exact matches always use the whole normalised part. Related revisions may miss older bases until records are re-saved or re-indexed. Reopen capture panels after changing the preset.</Text>
         <Button type="submit" appearance="primary" isDisabled={busy}>Save search settings</Button>
       </Stack>
     </Form>}

@@ -14,17 +14,21 @@ export function scopedJql(jql, projectIds) {
   if (!projectIds.length) throw new Error('Search project scope is empty.');
   return `project in (${projectIds.map(escapeJqlValue).join(', ')}) AND ${jql}`;
 }
-export function buildMatchJql(capture, lookbackDays = defaultLookbackDays, projectIds) {
-  const { partBase } = normalise(capture.partOriginal);
-  return scopedJql(boundedJql(capture, `qlPartBase = ${escapeJqlValue(partBase)} AND qlFailureMode = ${escapeJqlValue(normaliseText(capture.failureMode))}`, lookbackDays), projectIds);
+export function buildMatchJql(capture, lookbackDays = defaultLookbackDays, projectIds, revisionPreset) {
+  const { partBase, partNorm } = normalise(capture.partOriginal, revisionPreset);
+  // Independent OR branches share the existing 200-candidate budget. Exact
+  // retrieval never depends on the CAPA's stored base or its project's preset.
+  const exact = `qlPart = ${escapeJqlValue(partNorm)}`;
+  const related = revisionPreset === 'NONE' ? '' : ` OR (qlPartBase = ${escapeJqlValue(partBase)} AND qlPart != ${escapeJqlValue(partNorm)})`;
+  return scopedJql(boundedJql(capture, `(${exact}${related}) AND qlFailureMode = ${escapeJqlValue(normaliseText(capture.failureMode))}`, lookbackDays), projectIds);
 }
 
 function boundedJql(capture, signature, lookbackDays = defaultLookbackDays) {
   return `qlRecordType = "CAPA" AND ${signature} AND qlClosed >= ${escapeJqlValue(windowStart(capture.detectedDate, lookbackDays))} AND qlClosed < ${escapeJqlValue(capture.detectedDate)} ORDER BY qlClosed DESC, key ASC`;
 }
 
-export function buildOtherRelatedJql(capture, lookbackDays = defaultLookbackDays, projectIds) {
-  const { partBase, partNorm } = normalise(capture.partOriginal);
+export function buildOtherRelatedJql(capture, lookbackDays = defaultLookbackDays, projectIds, revisionPreset) {
+  const { partBase, partNorm } = normalise(capture.partOriginal, revisionPreset);
   const failureMode = normaliseText(capture.failureMode);
   const supplier = normaliseText(capture.supplier ?? '');
   return [

@@ -40,12 +40,22 @@ test('collapses inner whitespace and leaves partOriginal untouched', () => {
   expect(part).toBe(' \tp  4471\n-a  ');
 });
 
-test('supports a configurable pattern without mutating its lastIndex', () => {
-  const pattern = /^(.+)\/REV(\d+)$/g;
-  pattern.lastIndex = 3;
-  expect(normalise('p4471/rev02', pattern)).toMatchObject({ partBase: 'P4471', partRevision: '02' });
-  expect(normalise('p4471/rev02', pattern)).toMatchObject({ partBase: 'P4471', partRevision: '02' });
-  expect(pattern.lastIndex).toBe(3);
+test.each([/^(.+)\/REV(\d+)$/g, 'custom', '', null, { source: '^(.+)-(.*)$' }])('rejects free regex/unknown preset %j', (preset) => {
+  expect(() => normalise('P-100-A', preset)).toThrow('Select a supported revision preset.');
+});
+
+test.each([
+  ['LETTERS', 'P-100-AA', 'P-100', 'AA'],
+  ['LETTERS', 'P-100-01', 'P-100-01', null],
+  ['ALPHANUMERIC', 'P-100-01', 'P-100', '01'],
+  ['ALPHANUMERIC', 'P-100-A2B', 'P-100', 'A2B'],
+  ['ALPHANUMERIC', 'P-100-ABCD', 'P-100-ABCD', null],
+  ['R_DIGITS', 'p-100-r1234', 'P-100', 'R1234'],
+  ['R_DIGITS', 'P-100-12', 'P-100-12', null],
+  ['NONE', 'P-100-A', 'P-100-A', null],
+])('%s splits %s deterministically', (preset, original, partBase, partRevision) => {
+  expect(normalise(original, preset)).toMatchObject({ partBase, partRevision });
+  expect(normalise(original, preset).partNorm).toBe(normalise(original).partNorm);
 });
 
 test('does not silently coerce a non-string part number', () => {

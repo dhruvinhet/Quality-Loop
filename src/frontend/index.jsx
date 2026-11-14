@@ -15,7 +15,7 @@ const App = () => {
     setState({ loading: true });
     Promise.all([invoke('loadCapture'), invoke('getPanelAccess'), invoke('getFailureModes')]).then(([result, access, catalogue]) => {
       if (active) setState({ loading: false, record: result?.record ?? null, canEdit: access?.canEdit === true,
-        failureModes: catalogue?.modes,
+        failureModes: catalogue?.modes, revisionPreset: access?.revisionPreset,
         error: result?.error || access?.error || catalogue?.error || (!catalogue?.modes ? 'Failure modes could not be loaded. Try loading again.' : null)
           || (!access ? 'Issue access could not be checked. Try loading again.' : null) });
     }).catch(() => {
@@ -38,7 +38,7 @@ const App = () => {
         <Text>Choose a record type, enter the quality details, then save this issue.</Text>
         <Button appearance="primary" onClick={() => setSetupType('NC')}>Set up as NC</Button>
         <Button onClick={() => setSetupType('CAPA')}>Set up as CAPA</Button>
-      </Stack> : <CaptureForm record={state.record} failureModes={state.failureModes} initialRecordType={setupType} onSaved={(record) => {
+      </Stack> : <CaptureForm record={state.record} failureModes={state.failureModes} revisionPreset={state.revisionPreset} initialRecordType={setupType} onSaved={(record) => {
         setState((previous) => ({ ...previous, record }));
         setMatchRefresh((value) => value + 1);
       }} />)

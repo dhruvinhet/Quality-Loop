@@ -10,7 +10,7 @@ const capa = (days, projectId = '100') => ({ ...nc, id: '2', key: 'DEMO-2', reco
   closedDate: new Date(Date.parse(nc.detectedDate) - days * 86400000).toISOString().slice(0, 10) });
 
 test('defaults are local project and 365 days; allowed windows are deliberately bounded', () => {
-  expect(defaultSearchSettings()).toEqual({ version: 0, scope: 'PROJECT', lookbackDays: 365, projectIds: [] });
+  expect(defaultSearchSettings()).toEqual({ version: 0, scope: 'PROJECT', lookbackDays: 365, projectIds: [], revisionPreset: 'LETTERS' });
   for (const lookbackDays of LOOKBACK_OPTIONS) expect(validSearchSettings({ ...defaultSearchSettings(), lookbackDays })).toBe(true);
   expect(validSearchSettings({ ...defaultSearchSettings(), lookbackDays: 400 })).toBe(false);
 });

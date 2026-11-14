@@ -107,14 +107,14 @@ catalogue continues to require Jira administrator permission.
   range is 1 through the selected number of days before detection, inclusive.
 
 Settings live at installation-scoped KVS `settings:<projectId>` with scope,
-listed project IDs, lookbackDays and an edit revision. The **NC's project**
+listed project IDs, lookbackDays, revisionPreset and an edit version. The **NC's project**
 selects the settings, including for CAPAs in another project. Match,
 other-related and hint JQL, fresh in-memory classification, and the decision
 resolver's eligibility recheck all use them. Listed queries include a quoted
 `project in (...)` restriction; all-project searches rely on asUser access.
 Invalid/unavailable settings fail closed rather than widening a search.
 
-Project settings contain scope, project IDs, window and revision, not issue
+Project settings contain scope, project IDs, window, revision preset and edit version, not issue
 content. The existing Data health cleanup handles NC/CAPA decision records, not
 these settings keys; a deleted project's settings may remain in KVS.
 
@@ -165,7 +165,7 @@ or uncertain save rather than overwriting another edit.
 ### Normalisation and migration
 
 1. Normalisation trims whitespace, collapses inner whitespace and converts to uppercase. Part numbers additionally follow the named rule **spaces around hyphens are removed**: `SM-6604 -A` and `SM-6604-A` are equal after normalisation. This is deterministic formatting normalisation, not fuzzy matching; failure-mode text normalisation is unchanged. `partOriginal` preserves the input part number, and cards use it for display.
-2. The current revision pattern is a trailing `-<1–2 letters>` suffix of the normalised part. An otherwise eligible different revision of the same base part, with the same failure mode, is a **related revision**, never an exact match.
+2. The project's revision preset defaults to a trailing `-<1–2 letters>` suffix. Related comparisons apply the **NC project's preset to both original part strings in memory**, regardless of the presets used when saved. No revision split disables related-revision matching. An otherwise eligible different revision of the same base part, with the same failure mode, is a **related revision**, never an exact match.
 3. A strong or related-revision match needs a recorded QualityLoop closed date between 1 and the NC project's lookbackDays (365 by default) before detection, within its configured project scope. Jira status is not a matching gate.
 4. Supplier and line do not affect strong or related-revision matches. Supplier can affect **Other related records**; line supplies supporting facts.
 5. Strong and related-revision matching use no fuzzy comparisons. Limited, labelled hints can surface some part-number typos; they do not cover every typo.
@@ -186,7 +186,22 @@ on supplier or line. The legacy `qlSupplier` alias is retained; the application
 now uses `qlSupplierNorm` for that search branch. Old noncanonical failure codes
 written directly into Jira can still be missed by JQL until re-saved canonically.
 
-Existing stored CAPAs keep their old `partNorm` and `partBase` until re-saved; the matcher re-normalises `partOriginal` in memory once a record is fetched, but JQL on `qlPartBase` can still miss older records saved with a trailing-space base, so open and re-save affected CAPAs to refresh those stored fields.
+Existing stored CAPAs keep their old part indexes until re-saved or explicitly re-indexed. Exact/strong retrieval uses `qlPart` (the whole `partNorm`), independently of any revision preset. Related-revision retrieval uses `qlPartBase` computed with the NC project's preset. These are independent OR branches in one enhanced JQL query, sharing the existing 200-candidate limit. CAPAs saved under a different preset (another project, or before a preset change) may be missed as related revisions until re-saved or re-indexed. Re-indexing uses each record's own project's current preset, so cross-project preset differences can still prevent related retrieval. Older records with trailing-space bases can likewise be missed by `qlPartBase`; stale whole-part indexes can miss `qlPart` until refreshed. Once fetched, the matcher always re-normalises `partOriginal` in memory.
+
+### Revision presets and part-index maintenance
+
+In the project QualityLoop tab's Search settings, select one of these fixed presets; free regex is rejected:
+
+| Preset | Example split (base / revision) |
+| --- | --- |
+| Trailing `-<1–2 letters>` (default) | `P-100-AA` → `P-100` / `AA` |
+| Trailing `-<1–3 letters or digits>` | `P-100-01` → `P-100` / `01` |
+| Trailing `-R<digits>` | `P-100-R12` → `P-100` / `R12` |
+| No revision split | `P-100-A` stays the whole base; no revision |
+
+Saving uses the record's **own project** preset for `partBase`/`partRevision`, including sample creation. The capture form previews `Base: X · Revision: Y` or `Base: X · No revision` as you type. Whole-part normalisation is identical for every preset: trim, collapse whitespace, uppercase, remove spaces around hyphens. Reopen capture panels after changing the preset; the server always uses the current setting when saving. Existing T30 settings without a preset retain the default. Preset edits share the settings version check, lock, and project-admin-or-Jira-admin permission rule. The default evaluation rules and frozen data remain unchanged.
+
+On the admin page under App data maintenance, **Scan accessible app records** retains the legacy app-index scan and also scans the first ten accessible Jira quality records for stale part indexes. **Review part-index updates** lists every `qualityloop` property write (whole normalised part, base and revision). Cancel writes nothing to Jira; confirm applies only those listed writes, preserving other quality details, including legacy missing closed dates and stored links. Use **Scan next part-index page** until no continuation remains; apply pending updates before moving on. The scan covers Jira-indexed NC/CAPA properties, including records with no decisions. Before each write the resolver rechecks admin permission, reads the issue as the user, and verifies the record, project and preset still match the preview. Changed or inaccessible records are skipped; scan again to retry. Jira indexing is asynchronous, so refresh evidence after the updated properties are indexed.
 
 ## Evaluation
 

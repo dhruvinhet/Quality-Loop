@@ -4,7 +4,8 @@ import { route } from '@forge/api';
 import { kvs } from '@forge/kvs';
 import { removableSample, SAMPLE_LABEL, sampleCreationLines, sampleDefinitions, selectSampleIssueType } from '../lib/sampleScenario';
 import { readFailureModes } from './failureModes';
-import { registerSearchSettings } from './searchSettings';
+import { readSearchSettings, registerSearchSettings } from './searchSettings';
+import { normalise } from '../lib/normalise';
 import { RECORD_ENTITIES, recordsForIssues } from '../lib/cleanup';
 import { deleteRecordBatch, recordPage } from './cleanupStore';
 import { pageDefine, projectContext, readTicket, saveTicket, userJira, validCursor } from './pageUtils';
@@ -107,10 +108,12 @@ pageDefine(resolver, 'advanceSample', [], async (context) => {
     if (sample.items.length < 5) {
       const index = sample.items.length;
       const definition = sample.definitions[index];
+      const { revisionPreset } = await readSearchSettings(project.id);
+      const capture = { ...definition.capture, ...normalise(definition.capture.partOriginal, revisionPreset) };
       await kvs.set(key, { ...sample, attempting: index });
       const response = await userJira(route`/rest/api/3/issue`, post({ fields: {
         project: { id: project.id }, issuetype: { id: sample.issueTypeId }, summary: definition.name, labels: [SAMPLE_LABEL],
-      }, properties: [{ key: 'qualityloop', value: definition.capture }] }));
+      }, properties: [{ key: 'qualityloop', value: capture }] }));
       if (!response.ok) {
         // Even an error is not retried automatically; required custom fields may
         // prevent creation. The partial reservation is available for removal.

@@ -8,6 +8,7 @@ import { FAILURE_MODES } from '../config/failureModes';
 import { validateCapture } from '../lib/capture';
 import { validEvidenceUrl } from '../lib/urls';
 import { canonicalCode, modeOptions } from '../lib/failureModes';
+import { partPreview } from '../lib/normalise';
 
 const RECORD_TYPES = ['NC', 'CAPA'].map((value) => ({ label: value, value }));
 const asPayload = (data) => ({
@@ -16,13 +17,14 @@ const asPayload = (data) => ({
   failureMode: data.failureMode?.value ?? '',
 });
 
-export default function CaptureForm({ record, initialRecordType = '', onSaved, failureModes = FAILURE_MODES }) {
+export default function CaptureForm({ record, initialRecordType = '', onSaved, failureModes = FAILURE_MODES, revisionPreset }) {
   const storedCode = canonicalCode(record?.failureMode);
   const options = modeOptions(failureModes, storedCode);
   const storedOption = options.find(({ value }) => value === storedCode) ?? null;
   const [recordType, setRecordType] = useState(record?.recordType ?? initialRecordType);
   const [message, setMessage] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [partNumber, setPartNumber] = useState(record?.partOriginal ?? '');
   const { register, getFieldId, getValues, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     // UI Kit 12.4 only accepts defaultValues and hardcodes blur/change modes.
     // Register without validation; validate once in save to keep errors stable
@@ -44,6 +46,7 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved, f
     const registered = register(name);
     return { ...registered, onChange: (...args) => {
       setMessage(null);
+      if (name === 'partNumber') setPartNumber(args[0].target.value);
       return registered.onChange(...args);
     } };
   };
@@ -94,6 +97,7 @@ export default function CaptureForm({ record, initialRecordType = '', onSaved, f
 
         <Label labelFor={getFieldId('partNumber')}>Part number *</Label>
         <Textfield {...field('partNumber')} isDisabled={isSubmitting} maxLength={2000} />
+        <Text>{partPreview(partNumber, revisionPreset)}</Text>
         {error('partNumber')}
 
         <Label labelFor={getFieldId('failureMode')}>Failure mode *</Label>

@@ -14,6 +14,25 @@ export function DataPage() {
   const [message, setMessage] = useState('');
   const [health, setHealth] = useState(null);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
+  const [partPlan, setPartPlan] = useState(null);
+  const [confirmParts, setConfirmParts] = useState(false);
+  async function scanParts(cursor) {
+    setBusy(true);
+    try {
+      setPartPlan(await call('scanPartIndexes', cursor ? { cursor } : {}));
+      setMessage('Part-index page scanned. Review any proposed writes, then scan the next page if available.');
+    } catch { setMessage('Part indexes could not be scanned. Start a new scan.'); }
+    finally { setBusy(false); }
+  }
+  async function repairParts() {
+    setConfirmParts(false); setBusy(true);
+    try {
+      const result = await call('repairPartIndexes', { token: partPlan.token, confirmation: partPlan.lines.join('\n') });
+      setPartPlan((previous) => ({ ...previous, token: null, lines: [] }));
+      setMessage(`Part indexes updated: ${result.updated}. Updates skipped: ${result.skipped}. Scan again to retry skipped or interrupted updates.`);
+    } catch { setMessage('Updates could not finish. Check Jira and scan again before retrying.'); }
+    finally { setBusy(false); }
+  }
   async function checkHealth(resume = false) {
     setBusy(true);
     setMessage('Checking for orphaned app records...');
@@ -43,6 +62,7 @@ export function DataPage() {
   async function find() {
     setBusy(true);
     setResult(null);
+    setPartPlan(null);
     setMessage('Checking app records for issues you can browse...');
     try {
       const scan = await call('startOrphanScan');
@@ -56,6 +76,7 @@ export function DataPage() {
       });
       setResult(summary);
       setMessage(summary.backfillPending ? 'Scan complete. Some index updates need another attempt; scan again.' : 'Scan complete.');
+      await scanParts();
     } catch { setMessage('App records could not be checked. Refresh the page and try again.'); }
     finally { setBusy(false); }
   }
@@ -86,7 +107,18 @@ export function DataPage() {
     <Heading size="small" as="h2">App data maintenance</Heading>
     <Text>Supplier-based searches may miss older CAPAs until their quality details are re-saved.</Text>
     <Text>Scan app records for NCs and CAPAs you can browse and update their legacy indexes.</Text>
+    <Text>Also scan a page of accessible Jira quality records for part indexes computed with an older revision preset. Review and confirm the listed property writes before applying them. Each record uses its own project's current preset.</Text>
     <Button isDisabled={busy} onClick={find}>Scan accessible app records</Button>
+    {partPlan?.lines.length > 0 && <Button isDisabled={busy} onClick={() => setConfirmParts(true)}>Review part-index updates</Button>}
+    {partPlan?.lines.length > 0 && <Button isDisabled={busy} onClick={() => setPartPlan((previous) => ({ ...previous, lines: [], token: null }))}>Skip these part-index updates</Button>}
+    {partPlan?.nextCursor && <Button isDisabled={busy || partPlan.lines.length > 0} onClick={() => scanParts(partPlan.nextCursor)}>Scan next part-index page</Button>}
+    {partPlan?.incomplete && <Text>Jira did not provide a continuation token. The part-index scan is incomplete; start again.</Text>}
+    <ModalTransition>{confirmParts && <Modal onClose={() => setConfirmParts(false)}>
+      <ModalHeader><ModalTitle>Confirm part-index updates</ModalTitle></ModalHeader>
+      <ModalBody>{partPlan.lines.map((line, index) => <Text key={index}>{line}</Text>)}</ModalBody>
+      <ModalFooter><Button onClick={() => setConfirmParts(false)}>Cancel</Button>
+        <Button appearance="primary" onClick={repairParts}>Confirm part-index updates</Button></ModalFooter>
+    </Modal>}</ModalTransition>
     {message && <Text>{message}</Text>}
     {result && <Text>{`Accessible app ${plural(result.scanned, 'record')} checked: ${result.scanned}. ${plural(result.backfilled, 'Index', 'Indexes')} updated: ${result.backfilled}. ${plural(result.backfillPending, 'Update')} pending: ${result.backfillPending}.`}</Text>}
   </Stack>;

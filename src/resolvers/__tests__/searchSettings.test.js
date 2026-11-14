@@ -32,7 +32,7 @@ beforeEach(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => jest.restoreAllMocks());
-const payload = { scope: 'LISTED', lookbackDays: 730, projectKeys: 'ops, SUP ops QA', expectedVersion: 0 };
+const payload = { scope: 'LISTED', lookbackDays: 730, projectKeys: 'ops, SUP ops QA', expectedVersion: 0, revisionPreset: 'R_DIGITS' };
 
 test('any project browser can read defaults; project-admin permission is checked in that exact project', async () => {
   admin = false;
@@ -85,7 +85,7 @@ test('non-admin cannot save, even if an unrelated project permits administration
 });
 test('listed keys are validated asUser and stored by id, with the current project implicit', async () => {
   const result = await handler.saveProjectSearchSettings(req(payload));
-  expect(storage.get('settings:100')).toEqual({ version: 1, scope: 'LISTED', lookbackDays: 730, projectIds: ['200', '300'] });
+  expect(storage.get('settings:100')).toEqual({ version: 1, scope: 'LISTED', lookbackDays: 730, projectIds: ['200', '300'], revisionPreset: 'R_DIGITS' });
   expect(result.listedProjectKeys).toEqual(['OPS', 'SUP']);
   expect(request.mock.calls.map(([path]) => path)).toContain('/rest/api/3/project/OPS');
   expect(api.asUser).toHaveBeenCalledTimes(request.mock.calls.length);
@@ -142,4 +142,29 @@ test('missing NC project metadata or a denied project context cannot expose sett
   expect(await handler.getProjectSearchSettings(req())).toBeNull();
   expect(await handler.saveProjectSearchSettings(req(payload))).toBeNull();
   expect(kvs.get).not.toHaveBeenCalled(); expect(kvs.set).not.toHaveBeenCalled();
+});
+
+
+test('preset round trip shares the settings version check and legacy clients preserve the current preset', async () => {
+  const first = await handler.saveProjectSearchSettings(req(payload));
+  expect(first.settings).toMatchObject({ version: 1, revisionPreset: 'R_DIGITS' });
+  expect(await handler.saveProjectSearchSettings(req({ ...payload, revisionPreset: 'NONE' }))).toHaveProperty('error', expect.stringContaining('changed'));
+  const { revisionPreset, ...legacyPayload } = payload;
+  expect(revisionPreset).toBe('R_DIGITS');
+  const legacy = await handler.saveProjectSearchSettings(req({ ...legacyPayload, expectedVersion: 1 }));
+  expect(legacy.settings.revisionPreset).toBe('R_DIGITS');
+  const next = await handler.saveProjectSearchSettings(req({ ...payload, revisionPreset: 'NONE', expectedVersion: 2 }));
+  expect(next.settings).toMatchObject({ version: 3, revisionPreset: 'NONE' });
+});
+
+test.each(['^(.+)-(.*)$', 'custom', null, {}, ['NONE']])('free regex/invalid revision preset %j is rejected without writes', async (revisionPreset) => {
+  expect(await handler.saveProjectSearchSettings(req({ ...payload, revisionPreset }))).toHaveProperty('error', 'Select a supported revision preset.');
+  expect(kvs.set).not.toHaveBeenCalled();
+});
+
+test('legacy stored settings default to letters; corrupt preset fails closed', async () => {
+  storage.set('settings:100', { version: 1, scope: 'PROJECT', lookbackDays: 365, projectIds: [] });
+  expect((await handler.getProjectSearchSettings(req())).settings.revisionPreset).toBe('LETTERS');
+  storage.get('settings:100').revisionPreset = 'custom';
+  expect(await handler.getProjectSearchSettings(req())).toHaveProperty('error');
 });

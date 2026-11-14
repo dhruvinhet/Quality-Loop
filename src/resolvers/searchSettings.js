@@ -4,6 +4,7 @@ import { kvs } from '@forge/kvs';
 import { defaultSearchSettings, validSearchSettings, listedProjectKeys, LOOKBACK_OPTIONS, SEARCH_SCOPES, publicSearch, SETTINGS_PERMISSION_MESSAGE } from '../lib/searchSettings';
 import { pageDefine, projectContext } from './pageUtils';
 import { checkJira } from './loadBudget';
+import { DEFAULT_REVISION_PRESET, validRevisionPreset } from '../config/partPattern';
 
 const headers = { Accept: 'application/json' };
 const run = (budget, work) => budget ? budget.run(work) : work();
@@ -12,7 +13,7 @@ export async function readSearchSettings(projectId) {
   const stored = await kvs.get(`settings:${projectId}`);
   if (stored === undefined) return defaultSearchSettings();
   if (!validSearchSettings(stored)) throw new Error('Search settings are invalid.');
-  return stored;
+  return { ...stored, revisionPreset: stored.revisionPreset ?? DEFAULT_REVISION_PRESET };
 }
 async function browsableProject(ref, budget) {
   const response = await run(budget, () => api.asUser().requestJira(route`/rest/api/3/project/${ref}`, { headers }));
@@ -54,10 +55,11 @@ export function registerSearchSettings(resolver) {
     if (!project) return null;
     return view(project, await readSearchSettings(project.id));
   });
-  pageDefine(resolver, 'saveProjectSearchSettings', ['scope', 'lookbackDays', 'projectKeys', 'expectedVersion'], async (context, payload) => {
+  pageDefine(resolver, 'saveProjectSearchSettings', ['scope', 'lookbackDays', 'projectKeys', 'expectedVersion', 'revisionPreset'], async (context, payload) => {
     const project = await projectContext(context);
     if (!project) return null;
     if (!await canAdminister(project.id)) return { error: SETTINGS_PERMISSION_MESSAGE };
+    if (payload.revisionPreset !== undefined && !validRevisionPreset(payload.revisionPreset)) return { error: 'Select a supported revision preset.' };
     if (!SEARCH_SCOPES.some((s) => s.value === payload.scope) || !LOOKBACK_OPTIONS.includes(payload.lookbackDays)) {
       return { error: 'Select a supported search scope and look-back window.' };
     }
@@ -79,7 +81,8 @@ export function registerSearchSettings(resolver) {
       if (payload.expectedVersion !== current.version) return { error: 'Settings changed. Refresh before saving again.' };
       if (!await canAdminister(project.id)) return { error: SETTINGS_PERMISSION_MESSAGE };
       if ((await kvs.get(lock))?.token !== token) return { error: 'The settings lock was lost. Refresh before saving again.' };
-      const next = { version: current.version + 1, scope: payload.scope, lookbackDays: payload.lookbackDays, projectIds: [...new Set(projectIds)] };
+      const next = { version: current.version + 1, scope: payload.scope, lookbackDays: payload.lookbackDays, projectIds: [...new Set(projectIds)],
+        revisionPreset: payload.revisionPreset ?? current.revisionPreset };
       await kvs.set(`settings:${project.id}`, next);
       return view(project, next);
     } finally { if ((await kvs.get(lock))?.token === token) await kvs.delete(lock); }

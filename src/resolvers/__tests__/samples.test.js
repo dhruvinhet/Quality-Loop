@@ -265,3 +265,13 @@ test('sample resolver exceptions return safe messages and log no issue values', 
   expect(result).toEqual({ error: expect.any(String) });
   expect(JSON.stringify([result, console.error.mock.calls])).not.toMatch(/SECRET|private|stack/);
 });
+
+
+test('sample quality properties use the current project preset when each record is created', async () => {
+  putSample();
+  storage.set('settings:100', { version: 1, scope: 'PROJECT', lookbackDays: 365, projectIds: [], revisionPreset: 'NONE' });
+  requestJira.mockResolvedValueOnce(response(200, project)).mockResolvedValueOnce(response(201, { id: '20', key: 'QL-20' }));
+  expect(await handler.advanceSample(req())).toEqual({ done: false });
+  const create = requestJira.mock.calls.find(([path, options]) => path === '/rest/api/3/issue' && options.method === 'POST');
+  expect(JSON.parse(create[1].body).properties[0].value).toMatchObject({ partOriginal: 'DEMO-4471-A', partBase: 'DEMO-4471-A', partRevision: null });
+});

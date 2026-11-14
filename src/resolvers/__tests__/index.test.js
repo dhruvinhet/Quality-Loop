@@ -23,7 +23,7 @@ const context = { extension: { issue: { id: '10001' } } };
 const payload = { recordType: 'NC', partNumber: ' p-4471 -a ', failureMode: 'FM-01', detectedDate: '2026-10-31' };
 // Model the issue's real project for scoped searches; property reads still use value.
 const response = (status, value) => {
-  const withProject = (issue) => issue?.properties?.qualityloop ? { ...issue, fields: { project: { id: '123', key: 'QL' }, ...issue.fields } } : issue;
+  const withProject = (issue) => issue && Object.hasOwn(issue, 'properties') ? { ...issue, fields: { project: { id: '123', key: 'QL' }, ...issue.fields } } : issue;
   const body = value && Object.hasOwn(value, 'value')
     ? { ...value, fields: { project: { id: '123', key: 'QL' } }, properties: { qualityloop: value.value } } : withProject(value);
   if (body?.issues) body.issues = body.issues.map(withProject);
@@ -125,10 +125,10 @@ test.each([403, 404])('catalogue read hides all metadata when issue access retur
 
 test('direct save accepts active custom codes and rejects deactivated codes after a single authoritative read', async () => {
   const modes = [{ code: 'FM-08', label: 'Wire fracture', active: true }];
-  kvs.get.mockResolvedValue({ version: 1, modes });
+  kvs.get.mockImplementation(async (key) => key.startsWith('settings:') ? undefined : { version: 1, modes });
   requestJira.mockResolvedValueOnce(response(200, { properties: {} })).mockResolvedValueOnce(response(204));
   expect(await handler.saveCapture({ context, payload: { ...payload, failureMode: ' fm-08 ' } })).toHaveProperty('record.failureMode', 'FM-08');
-  expect(kvs.get).toHaveBeenCalledTimes(1);
+  expect(kvs.get.mock.calls.filter(([key]) => key === 'fm-catalog:site')).toHaveLength(1);
   kvs.get.mockResolvedValue({ version: 2, modes: [{ ...modes[0], active: false }] });
   requestJira.mockResolvedValue(response(200, { properties: {} }));
   expect(await handler.saveCapture({ context, payload: { ...payload, failureMode: 'FM-08' } })).toHaveProperty('fieldErrors.failureMode');
@@ -143,7 +143,7 @@ test.each([
   ['FM-08', ' fm-08 ', true],
   ['FM-77', 'FM-77', true],
 ])('save authorises the stored code only: stored=%j requested=%j succeeds=%s', async (storedCode, selectedCode, succeeds) => {
-  kvs.get.mockResolvedValue({ version: 1, modes: [
+  kvs.get.mockImplementation(async (key) => key.startsWith('settings:') ? undefined : { version: 1, modes: [
     { code: 'FM-08', label: 'Wire fracture', active: false },
     { code: 'FM-09', label: 'Other old mode', active: false },
     { code: 'FM-10', label: 'Current mode', active: true },
@@ -184,7 +184,7 @@ test('saves only to the context issue and produces the complete property via asU
   requestJira.mockResolvedValueOnce(response(200, { properties: {} })).mockResolvedValueOnce(response(201));
   const result = await handler.saveCapture({ context, payload });
   expect(requestJira).toHaveBeenCalledTimes(2);
-  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001?fields=summary&properties=qualityloop');
+  expect(requestJira.mock.calls[0][0]).toBe('/rest/api/3/issue/10001?fields=summary,project&properties=qualityloop');
   const [path, options] = requestJira.mock.calls[1];
   expect(path).toBe('/rest/api/3/issue/10001/properties/qualityloop');
   expect(options.method).toBe('PUT');
@@ -359,7 +359,7 @@ test.each([403, 404])('re-fetch denial (%s) drops candidate without counts or st
     .mockResolvedValueOnce(response(200, { issues: [{ id: '20002', summary: 'Secret', properties: { qualityloop: matchingCapa } }] }))
     .mockResolvedValueOnce(response(status, { secret: 'hidden' }));
   const result = await handler.findMatches({ context });
-  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, supplierIndexLimited: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, elapsedMs: expect.any(Number) });
+  expect(result).toEqual({ applicable: true, strong: [], relatedRevision: [], otherRelated: [], matchesIncomplete: false, otherRelatedIncomplete: false, incomplete: false, uncheckedCandidates: false, notShown: { strong: 0, relatedRevision: 0 }, verifiedNotShown: { strong: 0, relatedRevision: 0 }, supplierIndexLimited: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365, revisionPreset: 'LETTERS' }, elapsedMs: expect.any(Number) });
   expect(JSON.stringify(result)).not.toMatch(/Secret|hidden|count/i);
 });
 
@@ -455,7 +455,7 @@ test.each([403, 404])('findHints drops denied candidate %s without reading or le
     });
     return { status, ok: false, json };
   });
-  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, hints: [] });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365, revisionPreset: 'LETTERS' }, hints: [] });
   expect(json).not.toHaveBeenCalled();
 });
 
@@ -467,7 +467,7 @@ test('findHints rechecks stored values instead of hinting from stale search data
     });
     return response(200, freshIssue()); // now a strong match, never a hint
   });
-  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, hints: [] });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365, revisionPreset: 'LETTERS' }, hints: [] });
 });
 
 test('findHints enforces each search cap even on oversized pages and ignores continuation tokens', async () => {
@@ -507,7 +507,60 @@ test.each([{ isLast: false }, { nextPageToken: 'more' }, { isLast: true, nextPag
     if (path.endsWith('/properties/qualityloop') || path.includes('?fields=project&properties=qualityloop')) return response(200, { value: matchingNc });
     return response(200, { issues: [], ...continuation });
   });
-  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365 }, incomplete: true, truncated: true, hints: [] });
+  expect(await handler.findHints({ context })).toEqual({ applicable: true, search: { scope: 'PROJECT', scopeLabel: 'this project only', lookbackDays: 365, revisionPreset: 'LETTERS' }, incomplete: true, truncated: true, hints: [] });
   expect(requestJira.mock.calls.filter(([path]) => path === '/rest/api/3/search/jql')).toHaveLength(3);
   expect(requestJira.mock.calls.some(([, options]) => options?.body && JSON.parse(options.body).nextPageToken)).toBe(false);
+});
+
+
+test.each(['LETTERS', 'ALPHANUMERIC', 'R_DIGITS', 'NONE'])('saveCapture stores bases using its own project %s preset, never a payload preset', async (revisionPreset) => {
+  kvs.get.mockImplementation(async (key) => key === 'settings:123'
+    ? { version: 4, scope: 'PROJECT', lookbackDays: 365, projectIds: [], revisionPreset } : undefined);
+  requestJira.mockResolvedValueOnce(response(200, { fields: { project: { id: '123' } }, properties: {} })).mockResolvedValueOnce(response(204));
+  const original = ' p-100 -r12 ';
+  const result = await handler.saveCapture({ context, payload: { ...payload, partNumber: original } });
+  const expected = require('../../lib/normalise').normalise(original, revisionPreset);
+  expect(result.record).toMatchObject(expected);
+  expect(JSON.parse(requestJira.mock.calls[1][1].body)).toMatchObject(expected);
+  expect(kvs.get).toHaveBeenCalledWith('settings:123');
+  requestJira.mockClear();
+  expect(await handler.saveCapture({ context, payload: { ...payload, revisionPreset: 'NONE' } })).toHaveProperty('error');
+  expect(requestJira).not.toHaveBeenCalled();
+});
+
+test('cross-project exact match is found by qlPart even when stored bases reflect different presets', async () => {
+  const { buildCapture } = require('../../lib/capture');
+  const current = buildCapture({ ...payload, partNumber: 'P-100-R12' }, undefined, 'R_DIGITS');
+  const candidate = { id: '20002', key: 'OTHER-2', fields: { project: { id: '456' } }, properties: {
+    qualityloop: buildCapture({ ...payload, recordType: 'CAPA', partNumber: 'P-100-R12', closedDate: '2026-10-01' }, undefined, 'NONE'),
+  } };
+  expect(current.partBase).not.toBe(candidate.properties.qualityloop.partBase);
+  kvs.get.mockImplementation(async (key) => key === 'settings:123'
+    ? { version: 1, scope: 'ALL', lookbackDays: 365, projectIds: [], revisionPreset: 'R_DIGITS' } : undefined);
+  requestJira.mockImplementation(async (path, options) => {
+    if (path.includes('/issue/10001?')) return response(200, { value: current });
+    if (path === '/rest/api/3/search/jql') {
+      const { jql } = JSON.parse(options.body);
+      // The CAPA's stored base cannot satisfy the NC's related-revision branch.
+      return response(200, { issues: jql.includes('qlPart = "P-100-R12"') && jql.includes('qlFailureMode = "FM-01"') ? [candidate] : [], isLast: true });
+    }
+    return response(200, candidate);
+  });
+  const result = await handler.findMatches({ context });
+  expect(result.strong.map(({ key }) => key)).toEqual(['OTHER-2']);
+  expect(result.relatedRevision).toEqual([]);
+  expect(kvs.get).not.toHaveBeenCalledWith('settings:456'); // NC owns matching rules.
+});
+
+test('R_DIGITS related retrieval and hint exclusion use the NC preset, even for legacy stored bases', async () => {
+  const current = { schemaVersion: 3, recordType: 'NC', partOriginal: 'P-100-R12', failureMode: 'FM-01', detectedDate: '2026-10-31' };
+  const candidate = { id: '20002', key: 'QL-2', fields: { project: { id: '123' } }, properties: {
+    qualityloop: { ...current, recordType: 'CAPA', partOriginal: 'P-100-R13', partBase: 'P-100', closedDate: '2026-10-01' },
+  } };
+  kvs.get.mockImplementation(async (key) => key === 'settings:123'
+    ? { version: 1, scope: 'PROJECT', lookbackDays: 365, projectIds: [], revisionPreset: 'R_DIGITS' } : undefined);
+  requestJira.mockImplementation(async (path) => path.includes('/issue/10001?') ? response(200, { value: current })
+    : path === '/rest/api/3/search/jql' ? response(200, { issues: [candidate], isLast: true }) : response(200, candidate));
+  expect((await handler.findMatches({ context })).relatedRevision.map(({ key }) => key)).toEqual(['QL-2']);
+  expect((await handler.findHints({ context })).hints).toEqual([]);
 });

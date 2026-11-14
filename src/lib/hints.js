@@ -32,21 +32,21 @@ export function excludeMatchedHints(hints, matches) {
     (id && String(match.id) === String(id)) || (key && match.key === key)));
 }
 
-export function selectHints(current, candidates, lookbackDays = defaultLookbackDays, projectIds) {
+export function selectHints(current, candidates, lookbackDays = defaultLookbackDays, projectIds, revisionPreset) {
   if (current?.recordType !== 'NC' || !validDate(current.detectedDate) ||
       !text(current.partOriginal).trim() || !text(current.failureMode).trim()) return [];
   const start = windowStart(current.detectedDate, lookbackDays);
-  const nc = normalise(current.partOriginal);
+  const nc = normalise(current.partOriginal, revisionPreset);
   const mode = normaliseText(current.failureMode);
   const compact = compactPart(current.partOriginal);
-  const matches = matchCaptures(current, candidates, lookbackDays, projectIds);
+  const matches = matchCaptures(current, candidates, lookbackDays, projectIds, revisionPreset);
   const hints = [];
   for (const candidate of excludeMatchedHints(candidates.filter(Boolean), matches)) {
     if (!candidate || !inProjectScope(candidate.projectId, projectIds) || candidate.recordType !== 'CAPA' || !text(candidate.partOriginal).trim() ||
         (current.id != null && String(candidate.id) === String(current.id)) ||
         (current.key && current.key === candidate.key) ||
         normaliseText(text(candidate.failureMode)) !== mode) continue;
-    const part = normalise(candidate.partOriginal);
+    const part = normalise(candidate.partOriginal, revisionPreset);
     const closed = candidate.closedDate;
     let reason;
     let priority;

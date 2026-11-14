@@ -72,3 +72,30 @@ test('one orphan has singular count, confirmation and removal wording', async ()
   expect(render()).toContain('Removed 1 orphaned record. 0 records retained after re-check.');
   expect(render()).toContain('Orphaned record removed: 1.');
 });
+
+
+test('accessible scan previews every part-index write and requires confirmation; cancellation makes no Jira writes', async () => {
+  const lines = ['Update QL-1 qualityloop part indexes.', 'Update QL-2 qualityloop part indexes.'];
+  invoke.mockImplementation(async (name) => ({
+    startOrphanScan: { token: 'legacy-scan' },
+    findOrphanPage: { scanned: 0, backfilled: 0, backfillPending: 0 },
+    scanPartIndexes: { token: 'parts-plan', lines, nextCursor: 'next' },
+    repairPartIndexes: { updated: 2, skipped: 0 },
+  }[name]));
+  await click(render(), 'Scan accessible app records');
+  expect(invoke.mock.calls.some(([name]) => name === 'repairPartIndexes')).toBe(false);
+  await click(render(), 'Review part-index updates');
+  let tree = render();
+  for (const line of lines) expect(tree).toContain(line);
+  expect(tree.find((node) => node.type === 'Button' && node.props.children === 'Scan next part-index page').props.isDisabled).toBe(true);
+  await click(tree, 'Cancel');
+  expect(invoke.mock.calls.some(([name]) => name === 'repairPartIndexes')).toBe(false);
+  await click(render(), 'Review part-index updates');
+  await click(render(), 'Confirm part-index updates');
+  expect(invoke).toHaveBeenLastCalledWith('repairPartIndexes', { token: 'parts-plan', confirmation: lines.join('\n') });
+  tree = render();
+  expect(tree).toContain('Part indexes updated: 2. Updates skipped: 0. Scan again to retry skipped or interrupted updates.');
+  expect(tree.find((node) => node.type === 'Button' && node.props.children === 'Scan next part-index page').props.isDisabled).toBe(false);
+  await click(tree, 'Scan next part-index page');
+  expect(invoke).toHaveBeenLastCalledWith('scanPartIndexes', { cursor: 'next' });
+});

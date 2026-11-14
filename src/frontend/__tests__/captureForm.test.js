@@ -211,3 +211,21 @@ test('disabled saved record type is retained in the submitted payload', async ()
   expect(invoke).toHaveBeenCalledWith('saveCapture', expect.objectContaining({ recordType: 'CAPA', closedDate: '2026-10-01' }));
   expect(onSaved).toHaveBeenCalledWith(record);
 });
+
+
+test.each([
+  ['LETTERS', 'p-100-aa', 'Base: P-100 · Revision: AA'],
+  ['ALPHANUMERIC', 'P-100-02', 'Base: P-100 · Revision: 02'],
+  ['R_DIGITS', 'P-100-R12', 'Base: P-100 · Revision: R12'],
+  ['NONE', 'P-100-A', 'Base: P-100-A · No revision'],
+])('live preview uses %s and preserves uncontrolled fast typing/paste in the save payload', async (revisionPreset, original, preview) => {
+  const render = mount({ record: complete, revisionPreset });
+  const input = render().find((node) => node.type === 'Textfield' && node.props.name === 'partNumber');
+  expect(Object.hasOwn(input.props, 'value')).toBe(false);
+  input.props.onChange({ target: { value: 'P' } });
+  input.props.onChange({ target: { value: original } });
+  expect(render()).toContain(preview);
+  invoke.mockResolvedValueOnce({ record: complete });
+  await submit(render());
+  expect(invoke).toHaveBeenCalledWith('saveCapture', expect.objectContaining({ partNumber: original }));
+});

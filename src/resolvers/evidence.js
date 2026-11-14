@@ -39,8 +39,8 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
     result.supplierIndexLimited = !!current.supplier?.trim();
     const nc = { ...current, id: issueId };
     const seen = new Set([issueId]);
-    const queries = [[buildMatchJql(current, search.lookbackDays, search.projectIds), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete'],
-      ...buildOtherRelatedJql(current, search.lookbackDays, search.projectIds).map((jql) => [jql, OTHER_RELATED_LIMIT, 'otherRelatedIncomplete'])];
+    const queries = [[buildMatchJql(current, search.lookbackDays, search.projectIds, search.revisionPreset), MATCH_CANDIDATE_LIMIT, 'matchesIncomplete'],
+      ...buildOtherRelatedJql(current, search.lookbackDays, search.projectIds, search.revisionPreset).map((jql) => [jql, OTHER_RELATED_LIMIT, 'otherRelatedIncomplete'])];
     for (const [jql, limit, flag] of queries) {
       let token;
       let fetched = 0;
@@ -60,7 +60,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
           const id = String(issue.id);
           if (!/^\d+$/.test(id) || seen.has(id)) continue;
           seen.add(id);
-          const classified = matchCaptures(nc, [issueCapture(issue)], search.lookbackDays, search.projectIds);
+          const classified = matchCaptures(nc, [issueCapture(issue)], search.lookbackDays, search.projectIds, search.revisionPreset);
           for (const kind of classes) if (classified[kind].length) {
             selected.push({ id, kind, match: classified[kind][0] });
             if (kind !== 'otherRelated') unchecked.set(id, kind);
@@ -93,7 +93,7 @@ export async function findMatches(issueId, budget = loadBudget(), authorised = n
             const issue = await budget.run(() => fresh.json());
             unchecked.delete(id);
             if (String(issue.id) !== id) return null;
-            const classified = matchCaptures(nc, [issueCapture(issue)], search.lookbackDays, search.projectIds);
+            const classified = matchCaptures(nc, [issueCapture(issue)], search.lookbackDays, search.projectIds, search.revisionPreset);
             const freshKind = classes.find((name) => classified[name].length);
             return freshKind ? { issue, kind: freshKind, match: classified[freshKind][0] } : null;
           }));

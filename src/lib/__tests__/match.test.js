@@ -176,5 +176,31 @@ test('JQL values escape quotes and backslashes and cannot break out of the liter
   expect(escapeJqlValue('" OR issue != 1')).toBe('"\\" OR issue != 1"');
   expect(() => escapeJqlValue('bad\nvalue')).toThrow();
   const query = buildMatchJql(nc);
-  expect(query).toBe('qlRecordType = "CAPA" AND qlPartBase = "P-4471" AND qlFailureMode = "FM-01" AND qlClosed >= "2025-10-31" AND qlClosed < "2026-10-31" ORDER BY qlClosed DESC, key ASC');
+  expect(query).toBe('qlRecordType = "CAPA" AND (qlPart = "P-4471-A" OR (qlPartBase = "P-4471" AND qlPart != "P-4471-A")) AND qlFailureMode = "FM-01" AND qlClosed >= "2025-10-31" AND qlClosed < "2026-10-31" ORDER BY qlClosed DESC, key ASC');
+});
+
+
+test.each([
+  ['ALPHANUMERIC', 'P-100-01', 'P-100-02', 1],
+  ['R_DIGITS', 'P-100-R12', 'P-100-R13', 1],
+  ['NONE', 'P-100-A', 'P-100-B', 0],
+  ['LETTERS', 'P-100-A', 'P-100-AA', 1],
+])('%s related comparisons use the NC preset on both originals', (preset, left, right, count) => {
+  const current = { ...nc, partOriginal: left, partBase: 'STALE' };
+  const result = matchCaptures(current, [capa({ partNumber: right })], 365, undefined, preset);
+  expect(result.relatedRevision).toHaveLength(count);
+  expect(result.strong).toEqual([]);
+  const jql = buildMatchJql(current, 365, undefined, preset);
+  expect(jql).toContain(`qlPart = "${left}"`);
+  if (preset === 'NONE') expect(jql).not.toContain('qlPartBase');
+  else expect(jql).toContain('qlPartBase = "P-100"');
+});
+
+test('exact comparison and JQL whole-part branch are independent of stored bases and presets', () => {
+  const current = { ...nc, partOriginal: 'P-100-R12', partBase: 'P-100-R12' };
+  const candidate = capa({ partNumber: 'P-100-R12' }, { partBase: 'DIFFERENT' });
+  for (const preset of ['LETTERS', 'ALPHANUMERIC', 'R_DIGITS', 'NONE']) {
+    expect(matchCaptures(current, [candidate], 365, undefined, preset).strong).toHaveLength(1);
+    expect(buildMatchJql(current, 365, undefined, preset)).toContain('qlPart = "P-100-R12"');
+  }
 });
