@@ -39,7 +39,43 @@ test('any project browser can read defaults; project-admin permission is checked
   const result = await handler.getProjectSearchSettings(req());
   expect(result).toMatchObject({ settings: { scope: 'PROJECT', lookbackDays: 365, version: 0 }, canAdmin: false });
   expect(kvs.set).not.toHaveBeenCalled();
-  expect(request).toHaveBeenCalledWith('/rest/api/3/mypermissions?projectId=100&permissions=ADMINISTER_PROJECTS', expect.any(Object));
+  expect(request).toHaveBeenCalledWith('/rest/api/3/mypermissions?projectId=100&permissions=ADMINISTER_PROJECTS,ADMINISTER', expect.any(Object));
+});
+
+test.each([
+  [true, false, true],
+  [false, true, true],
+  [true, true, true],
+  [false, false, false],
+])('project admin=%s Jira admin=%s can view editing controls and save=%s', async (projectAdmin, jiraAdmin, allowed) => {
+  const original = request.getMockImplementation();
+  request.mockImplementation((path, options) => path.startsWith('/rest/api/3/mypermissions')
+    ? response(200, { permissions: { ADMINISTER_PROJECTS: { havePermission: projectAdmin }, ADMINISTER: { havePermission: jiraAdmin } } })
+    : original(path, options));
+  expect((await handler.getProjectSearchSettings(req())).canAdmin).toBe(allowed);
+  const result = await handler.saveProjectSearchSettings(req(payload));
+  if (allowed) {
+    expect(result.canAdmin).toBe(true);
+    expect(storage.get('settings:100')).toMatchObject({ scope: 'LISTED', lookbackDays: 730 });
+  } else {
+    expect(result).toEqual({ error: 'Administer Projects on this project or Jira administrator permission is required to change these settings.' });
+    expect(kvs.set).not.toHaveBeenCalled();
+  }
+  const checks = request.mock.calls.filter(([path]) => path.includes('/mypermissions'));
+  expect(checks).toHaveLength(allowed ? 4 : 2); // View, then save's two gates and returned view.
+  expect(checks.every(([path]) => path === '/rest/api/3/mypermissions?projectId=100&permissions=ADMINISTER_PROJECTS,ADMINISTER')).toBe(true);
+});
+
+test.each(['ADMINISTER_PROJECTS', 'ADMINISTER'])('revoked %s permission is rejected again immediately before the settings write', async (grant) => {
+  const original = request.getMockImplementation(); let checks = 0;
+  request.mockImplementation((path, options) => path.includes('/mypermissions')
+    ? response(200, { permissions: { [grant]: { havePermission: ++checks === 1 } } }) : original(path, options));
+  expect(await handler.saveProjectSearchSettings(req(payload))).toEqual({
+    error: 'Administer Projects on this project or Jira administrator permission is required to change these settings.',
+  });
+  expect(checks).toBe(2);
+  expect(storage.has('settings:100')).toBe(false);
+  expect(storage.has('settings-lock:100')).toBe(false);
 });
 test('non-admin cannot save, even if an unrelated project permits administration', async () => {
   request.mockImplementation(async (path) => path.startsWith('/rest/api/3/project/') ? response(200, { id: '100', key: 'QA' })

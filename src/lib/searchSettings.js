@@ -1,4 +1,5 @@
 export const LOOKBACK_OPTIONS = [90, 365, 730, 1095];
+export const SETTINGS_PERMISSION_MESSAGE = 'Administer Projects on this project or Jira administrator permission is required to change these settings.';
 export const SEARCH_SCOPES = [
   { value: 'PROJECT', label: 'This project only' },
   { value: 'LISTED', label: 'This project + listed projects' },

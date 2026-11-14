@@ -86,11 +86,12 @@ flowchart LR
 
 ### Project search settings
 
-Open a project's **QualityLoop** tab: **Search settings** appears below **How to
-try this**. Anyone who can browse the project can see its settings. Changes
-require **Administer Projects** on that exact project, checked as the acting user
-in the resolver. This is separate from the site-wide failure-mode catalogue's
-Jira administrator permission.
+Open a project's **QualityLoop** tab: **How to try this** comes first, followed
+by **Sample scenario** controls and links, then **Search settings** last. Anyone
+who can browse the project can see its settings. Changes require either
+**Administer Projects** on that exact project or global **Jira administrator**
+permission, checked as the acting user in the resolver. The site-wide failure-mode
+catalogue continues to require Jira administrator permission.
 
 - **This project only** is the default. It keeps the default DEMO sample scoped
   to its own project even if another project has identical DEMO part numbers.

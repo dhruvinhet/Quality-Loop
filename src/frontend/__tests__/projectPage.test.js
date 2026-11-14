@@ -23,11 +23,26 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-test('search settings appear below the three-step walkthrough', () => {
+test('page order keeps walkthrough, sample controls and links before search settings', () => {
+  state = [{ exists: true, status: 'complete', issues: [{ key: 'DEMO-1' }] }, false, null, '', null, []];
   const tree = render();
   const component = tree.find((node) => node.type === ProjectSearchSettings);
   expect(component).toBeDefined();
-  expect(tree.indexOf(component)).toBeGreaterThan(tree.findIndex((node) => typeof node === 'string' && node.startsWith('3. Review the DEMO')));
+  const headings = tree.filter((node) => node.type === 'Heading').map((node) => node.props.children);
+  expect(headings).toEqual(['How to try this', 'Sample scenario']);
+  const lastStep = tree.findIndex((node) => typeof node === 'string' && node.startsWith('3. Review the DEMO'));
+  const sampleHeading = tree.findIndex((node) => node.type === 'Heading' && node.props.children === 'Sample scenario');
+  const settings = tree.indexOf(component);
+  expect(sampleHeading).toBeGreaterThan(lastStep);
+  for (const label of ['Create sample scenario (5 issues)', 'Remove sample scenario', 'Check sample readiness']) {
+    const index = tree.findIndex((node) => node.type === 'Button' && node.props.children === label);
+    expect(index).toBeGreaterThan(sampleHeading);
+    expect(index).toBeLessThan(settings);
+  }
+  const link = tree.findIndex((node) => node.type === 'Link' && node.props.children === 'DEMO-1');
+  expect(link).toBeGreaterThan(sampleHeading);
+  expect(link).toBeLessThan(settings);
+  expect(tree.at(-1)).toBe(component);
 });
 
 test('project page presents three compact first-run steps without an admin page', () => {

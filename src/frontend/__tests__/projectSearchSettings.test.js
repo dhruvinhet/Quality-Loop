@@ -27,7 +27,7 @@ test('project browsers see current settings without editing controls', async () 
   const tree = await load({ ...saved, canAdmin: false });
   expect(tree).toContain('Searching this project only · CAPAs closed 1–365 days before detection');
   expect(tree.some((node) => node.type === 'Form')).toBe(false);
-  expect(tree).toContain('Administer Projects permission on this project is required to change these settings.');
+  expect(tree).toContain('Administer Projects on this project or Jira administrator permission is required to change these settings.');
 });
 test('admin changes scope/window and submits latest pasted keys without controlled text input', async () => {
   let tree = await load();

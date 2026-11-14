@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Form, Heading, Label, SectionMessage, Select, Stack, Text, Textfield } from '@forge/react';
 import { invoke } from '@forge/bridge';
-import { LOOKBACK_OPTIONS, SEARCH_SCOPES, searchDescription } from '../lib/searchSettings';
+import { LOOKBACK_OPTIONS, SEARCH_SCOPES, searchDescription, SETTINGS_PERMISSION_MESSAGE } from '../lib/searchSettings';
 import { callPage } from './pageRunner';
 
 const WINDOWS = LOOKBACK_OPTIONS.map((value) => ({ value, label: `${value} days` }));
@@ -45,7 +45,7 @@ export default function ProjectSearchSettings() {
     {data && <>
       <Text>{searchDescription(data.settings)}</Text>
       {data.settings.scope === 'LISTED' && <Text>{`Listed projects you can browse: ${data.listedProjectKeys.join(', ') || 'none shown'}`}</Text>}
-      {!data.canAdmin && <Text>Administer Projects permission on this project is required to change these settings.</Text>}
+      {!data.canAdmin && <Text>{SETTINGS_PERMISSION_MESSAGE}</Text>}
     </>}
     {data?.canAdmin && <Form key={formKey} onSubmit={save}>
       <Stack space="space.100">

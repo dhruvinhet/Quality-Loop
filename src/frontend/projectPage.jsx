@@ -68,7 +68,7 @@ export function SamplePage() {
     <Text>2. {ready ? <>Open the DEMO new NC <Link href={`/browse/${encodeURIComponent(ready.newNcKey)}`}>{ready.newNcKey}</Link>.</>
       : 'Wait for the sample to be ready, or use Check sample readiness. Then open the DEMO new NC.'} Open QualityLoop from the apps icon under the issue title and click Save.</Text>
     <Text>3. Review the DEMO CAPA-B match and any hints. Record an engineer decision with a reason.</Text>
-    <ProjectSearchSettings />
+    <Heading size="small" as="h2">Sample scenario</Heading>
     <Text>Creates five labelled DEMO issues in this project. It never edits existing issues.</Text>
     <Button isDisabled={busy || !sample || sample.exists} onClick={() => run(async () => {
       const plan = await call('prepareSample');
@@ -85,6 +85,7 @@ export function SamplePage() {
     {message && <Text>{message}</Text>}
     {reports.map((report, index) => <Text key={index}>{report}</Text>)}
     {dialog && <PageConfirmation title={dialog.title} lines={dialog.lines} onCancel={() => setDialog(null)} onConfirm={confirm} />}
+    <ProjectSearchSettings />
   </Stack>;
 }
 
