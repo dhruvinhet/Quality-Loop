@@ -142,7 +142,7 @@ define('saveCapture', CAPTURE_FIELDS, async (issueId, payload) => {
     return { error: 'Record type cannot be changed after the first save. Create a new issue instead.' };
   }
   const catalogue = await readFailureModes(); // One authoritative read per save invocation.
-  const fieldErrors = validateCapture(payload, catalogue.modes);
+  const fieldErrors = validateCapture(payload, catalogue.modes, stored?.failureMode);
   if (Object.keys(fieldErrors).length) return { fieldErrors };
   const record = buildCapture(payload);
   if (Buffer.byteLength(JSON.stringify(record), 'utf8') > 32768) {

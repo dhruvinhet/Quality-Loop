@@ -1,6 +1,6 @@
 import { FAILURE_MODES } from '../config/failureModes';
 import { normalise, normaliseText } from './normalise';
-import { canonicalCode } from './failureModes';
+import { canonicalCode, validModeCode } from './failureModes';
 import { evidenceUrlError } from './urls';
 
 export const CAPTURE_FIELDS = [
@@ -14,13 +14,15 @@ export function validDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function validateCapture(input = {}, modes = FAILURE_MODES) {
+export function validateCapture(input = {}, modes = FAILURE_MODES, storedFailureMode) {
   const errors = {};
   if (!['NC', 'CAPA'].includes(input.recordType)) errors.recordType = 'Select NC or CAPA.';
   if (typeof input.partNumber !== 'string' || !input.partNumber.trim()) {
     errors.partNumber = 'Enter a part number.';
   }
-  if (!modes.some(({ code, active }) => active && code === canonicalCode(input.failureMode))) {
+  const selectedCode = canonicalCode(input.failureMode);
+  const keepsStoredCode = validModeCode(selectedCode) && selectedCode === canonicalCode(storedFailureMode);
+  if (!keepsStoredCode && !modes.some(({ code, active }) => active && code === selectedCode)) {
     errors.failureMode = 'Select a failure mode.';
   }
   if (input.recordType === 'NC' && !input.detectedDate) errors.detectedDate = 'Select a detected date for an NC.';

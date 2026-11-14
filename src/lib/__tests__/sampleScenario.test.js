@@ -2,6 +2,14 @@ const { sampleDefinitions, removableSample, SAMPLE_LABEL, sampleCreationLines, s
 const { matchCaptures } = require('../match');
 const { buildCapture } = require('../capture');
 
+test.each([
+  [[{ code: 'FM-08', label: 'Wire fracture', active: false }], 'FM-08 Wire fracture (inactive)'],
+  [[], 'FM-08 (not in catalogue)'],
+])('sample lines retain current inactive labels and distinguish absent codes', (failureModes, label) => {
+  const definitions = [{ name: 'Test CAPA', capture: { recordType: 'CAPA', partOriginal: 'P-1', failureMode: 'FM-08', closedDate: '2026-11-13' } }];
+  expect(sampleCreationLines(definitions, failureModes)[0]).toContain(label);
+});
+
 test('sample type prefers Task, otherwise the first non-subtask type in metadata order', () => {
   const subtask = { id: '1', name: 'Task', subtask: true };
   const story = { id: '2', name: 'Story', subtask: false };

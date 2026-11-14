@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { kvs } from '@forge/kvs';
-import { seedCatalogue, validCatalogue, changeCatalogue } from '../lib/failureModes';
+import { seedCatalogue, validCatalogue, changeCatalogue, sortFailureModes } from '../lib/failureModes';
 import { pageDefine, requireAdmin } from './pageUtils';
 
 // Forge namespaces KVS by installation/site/environment; no payload site ID.
@@ -10,7 +10,7 @@ export async function readFailureModes() {
   const stored = await kvs.get(CATALOGUE_KEY);
   if (stored === undefined) return seedCatalogue();
   if (!validCatalogue(stored)) throw new Error('Failure-mode catalogue is invalid.');
-  return stored;
+  return { ...stored, modes: sortFailureModes(stored.modes) };
 }
 export function registerFailureModeAdmin(resolver) {
   pageDefine(resolver, 'getFailureModeCatalogue', [], async (context) => {

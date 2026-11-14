@@ -33,6 +33,6 @@ export function removableSample(storedIds, issue) {
   return storedIds.includes(String(issue?.id)) && issue?.fields?.labels?.includes(SAMPLE_LABEL) === true;
 }
 
-export function sampleCreationLines(definitions) {
-  return definitions.map(({ name, capture: c }) => `${name}: ${c.recordType}, part ${c.partOriginal}, ${failureModeLabel(c.failureMode)}, supplier ${c.supplier || 'not recorded'}, line ${c.line || 'not recorded'}, ${c.recordType === 'CAPA' ? `QualityLoop closure date ${c.closedDate}` : `detected ${c.detectedDate}`}. Effectiveness evidence: ${c.effectivenessEvidenceUrl || 'none'}.${c.rootCause ? ` Root cause: ${c.rootCause}` : ''}${c.actionsTaken ? ` Actions: ${c.actionsTaken}` : ''}`);
+export function sampleCreationLines(definitions, failureModes) {
+  return definitions.map(({ name, capture: c }) => `${name}: ${c.recordType}, part ${c.partOriginal}, ${failureModeLabel(c.failureMode, failureModes)}, supplier ${c.supplier || 'not recorded'}, line ${c.line || 'not recorded'}, ${c.recordType === 'CAPA' ? `QualityLoop closure date ${c.closedDate}` : `detected ${c.detectedDate}`}. Effectiveness evidence: ${c.effectivenessEvidenceUrl || 'none'}.${c.rootCause ? ` Root cause: ${c.rootCause}` : ''}${c.actionsTaken ? ` Actions: ${c.actionsTaken}` : ''}`);
 }

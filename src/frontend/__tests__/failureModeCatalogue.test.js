@@ -1,4 +1,4 @@
-jest.mock('@forge/react', () => Object.fromEntries(['Button', 'Form', 'Heading', 'Label', 'SectionMessage', 'Stack', 'Text', 'Textfield'].map((name) => [name, name])));
+jest.mock('@forge/react', () => Object.fromEntries(['Button', 'ButtonGroup', 'Form', 'Heading', 'Inline', 'Label', 'Lozenge', 'SectionMessage', 'Stack', 'Text', 'Textfield'].map((name) => [name, name])));
 jest.mock('@forge/bridge', () => ({ invoke: jest.fn() }));
 const React = require('react');
 const { invoke } = require('@forge/bridge');
@@ -27,7 +27,9 @@ async function load(value = catalogue) {
 }
 test('admin lists catalogue, adds latest pasted text with uncontrolled inputs, and refreshes version', async () => {
   let tree = await load();
-  expect(tree).toContain('FM-08 Wire fracture (active)');
+  expect(tree).toContain('FM-08');
+  expect(tree).toContain('Wire fracture');
+  expect(tree.find((node) => node.type === 'Lozenge').props.children).toBe('Active');
   button(tree, 'Add failure mode').props.onClick(); tree = render();
   const fields = tree.filter((node) => node.type === 'Textfield');
   expect(fields.every((field) => !Object.hasOwn(field.props, 'value'))).toBe(true);
@@ -42,14 +44,15 @@ test('admin lists catalogue, adds latest pasted text with uncontrolled inputs, a
 });
 test('rename locks the code, and deactivate/activate are explicit actions with no delete button', async () => {
   let tree = await load();
-  button(tree, 'Rename FM-08 label').props.onClick(); tree = render();
+  button(tree, 'Rename').props.onClick(); tree = render();
   expect(tree.find((node) => node.type === 'Textfield' && node.props.id === 'mode-code').props.isDisabled).toBe(true);
   button(tree, 'Cancel catalogue edit').props.onClick(); tree = render();
   invoke.mockResolvedValueOnce({ version: 2, modes: [{ ...catalogue.modes[0], active: false }] });
-  await button(tree, 'Deactivate FM-08').props.onClick();
+  await button(tree, 'Deactivate').props.onClick();
   expect(invoke).toHaveBeenLastCalledWith('changeFailureMode', { action: 'deactivate', code: 'FM-08', expectedVersion: 1 });
-  tree = render(); expect(tree).toContain('FM-08 Wire fracture (inactive)');
-  expect(button(tree, 'Activate FM-08')).toBeDefined();
+  tree = render(); expect(tree).toContain('Wire fracture');
+  expect(tree.find((node) => node.type === 'Lozenge').props.children).toBe('Inactive');
+  expect(button(tree, 'Activate')).toBeDefined();
   expect(tree.filter((node) => node.type === 'Button').some((node) => String(node.props.children).includes('Delete'))).toBe(false);
 });
 test('permission and stale-version errors are visible and do not show saved', async () => {
@@ -57,8 +60,30 @@ test('permission and stale-version errors are visible and do not show saved', as
   expect(tree).toContain('The catalogue could not be loaded. Check Jira administrator permission and refresh.');
   tree = await load();
   invoke.mockResolvedValueOnce({ error: 'The catalogue changed. Refresh before editing again.' });
-  await button(tree, 'Deactivate FM-08').props.onClick();
+  await button(tree, 'Deactivate').props.onClick();
   tree = render();
   expect(tree).toContain('The catalogue changed. Refresh before editing again.');
   expect(tree.filter((node) => node.type === 'SectionMessage').map((node) => node.props.appearance)).toEqual(['error']);
+});
+
+test('catalogue rows sort by code with adjacent compact actions and status lozenges', async () => {
+  const modes = [{ code: 'FM-99', label: 'Other', active: true }, { code: 'FM-08', label: 'Wire fracture', active: false },
+    { code: 'FM-01', label: 'Crack', active: true }];
+  const before = JSON.stringify(modes);
+  const tree = await load({ version: 2, modes });
+  const rows = tree.filter((node) => node.type === 'Inline');
+  expect(rows.map((row) => nodes(row).find((node) => node.type === 'Text').props.children)).toEqual(['FM-01', 'FM-08', 'FM-99']);
+  for (const row of rows) {
+    expect(row.props).toMatchObject({ space: 'space.100', alignBlock: 'center', shouldWrap: true });
+    const contents = nodes(row);
+    const code = contents.find((node) => node.type === 'Text').props.children;
+    const group = contents.find((node) => node.type === 'ButtonGroup');
+    expect(group.props.label).toBe(`Actions for ${code}`);
+    const actions = nodes(group).filter((node) => node.type === 'Button');
+    expect(actions.map((action) => action.props.children)).toEqual(['Rename', code === 'FM-08' ? 'Activate' : 'Deactivate']);
+    expect(actions.every((action) => action.props.spacing === 'compact')).toBe(true);
+    const lozenge = contents.find((node) => node.type === 'Lozenge');
+    expect(lozenge.props).toMatchObject({ appearance: code === 'FM-08' ? 'default' : 'success', children: code === 'FM-08' ? 'Inactive' : 'Active' });
+  }
+  expect(JSON.stringify(modes)).toBe(before);
 });

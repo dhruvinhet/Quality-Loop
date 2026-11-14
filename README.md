@@ -104,15 +104,18 @@ deleted or reused. The 50-code limit includes inactive codes. The seed is used
 when the KVS key is absent; a storage error or malformed catalogue blocks writes
 instead of substituting defaults. Refresh open issue panels after editing.
 
-Capture selects and both client/server validation use active codes from the
-catalogue. New records save canonical codes, not labels. Cards show the active
-label with its code and fall back to the stored code when inactive or unknown.
-Existing records with deactivated codes still load, display and participate in
-matching; editing one requires selecting an active code before saving. Changing
-a label does not change a signature or rewrite existing records. A stale open
-form may be rejected by the server after deactivation; reload it to select a
-current code. Concurrent admin edits use a lock and revision check; refresh after
-a conflict or uncertain save rather than overwriting another edit.
+Capture selects and both client/server validation offer active codes plus the
+record's existing stored code. An existing record can keep its code after
+deactivation while other fields are edited, or switch to an active code. New
+records and switches to a different inactive code are rejected. The server
+compares with the property it reads from Jira, never a client-supplied exception.
+New saves persist canonical codes, not labels. Labels remain visible everywhere:
+`FM-08 Wire fracture (inactive)`; only absent codes show
+`FM-08 (not in catalogue)`. A valid stored code missing from the catalogue can
+also be retained when editing. Forms and compact admin rows sort by code.
+Changing a label does not change a signature or rewrite existing records.
+Concurrent admin edits use a lock and revision check; refresh after a conflict
+or uncertain save rather than overwriting another edit.
 
 ### Normalisation and migration
 
@@ -131,7 +134,8 @@ a conflict or uncertain save rather than overwriting another edit.
 
 JQL on `qlSupplierNorm` (`supplierNorm`) only covers records saved after this
 change. Older CAPAs can be missed by the supplier-based **Other related** search
-until re-saved; the evidence view discloses this limit. There is no automatic
+until re-saved; a short note under **QualityLoop data → App data maintenance**
+discloses this limit. There is no automatic
 backfill or global migration. Strong/related-revision matching does not depend
 on supplier or line. The legacy `qlSupplier` alias is retained; the application
 now uses `qlSupplierNorm` for that search branch. Old noncanonical failure codes

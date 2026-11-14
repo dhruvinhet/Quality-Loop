@@ -84,6 +84,7 @@ export function DataPage() {
         <Button appearance="danger" onClick={removeOrphans}>Confirm removal</Button></ModalFooter>
     </Modal>}</ModalTransition>
     <Heading size="small" as="h2">App data maintenance</Heading>
+    <Text>Supplier-based searches may miss older CAPAs until their quality details are re-saved.</Text>
     <Text>Scan app records for NCs and CAPAs you can browse and update their legacy indexes.</Text>
     <Button isDisabled={busy} onClick={find}>Scan accessible app records</Button>
     {message && <Text>{message}</Text>}

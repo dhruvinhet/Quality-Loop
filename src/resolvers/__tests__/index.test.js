@@ -40,6 +40,16 @@ test('getFailureModes returns the seed when KVS is missing and reauthorises the 
   expect(kvs.get).toHaveBeenCalledTimes(1);
 });
 
+test('an existing unsorted catalogue is returned by code without changing stored entries', async () => {
+  const catalogue = { version: 7, modes: [{ code: 'FM-99', label: 'Other', active: true },
+    { code: 'FM-08', label: 'Wire fracture', active: false }, { code: 'FM-01', label: 'Crack', active: true }] };
+  kvs.get.mockResolvedValue(catalogue);
+  const result = await handler.getFailureModes({ context });
+  expect(result.modes.map((m) => m.code)).toEqual(['FM-01', 'FM-08', 'FM-99']);
+  expect(catalogue.modes[0].code).toBe('FM-99');
+  expect(result.version).toBe(7);
+});
+
 test('new schema-v3 custom codes produce a verified strong match through the resolver', async () => {
   const { buildCapture } = require('../../lib/capture');
   const current = buildCapture({ ...payload, failureMode: 'fm-08' });
@@ -69,6 +79,40 @@ test('direct save accepts active custom codes and rejects deactivated codes afte
   kvs.get.mockResolvedValue({ version: 2, modes: [{ ...modes[0], active: false }] });
   requestJira.mockResolvedValue(response(200, { properties: {} }));
   expect(await handler.saveCapture({ context, payload: { ...payload, failureMode: 'FM-08' } })).toHaveProperty('fieldErrors.failureMode');
+});
+
+test.each([
+  [' fm-08 ', 'FM-08', true],
+  [undefined, 'FM-08', false],
+  ['FM-08', 'FM-09', false],
+  ['FM-10', 'FM-08', false],
+  ['FM-08', 'FM-10', true],
+  ['FM-08', ' fm-08 ', true],
+  ['FM-77', 'FM-77', true],
+])('save authorises the stored code only: stored=%j requested=%j succeeds=%s', async (storedCode, selectedCode, succeeds) => {
+  kvs.get.mockResolvedValue({ version: 1, modes: [
+    { code: 'FM-08', label: 'Wire fracture', active: false },
+    { code: 'FM-09', label: 'Other old mode', active: false },
+    { code: 'FM-10', label: 'Current mode', active: true },
+  ] });
+  const stored = storedCode ? { schemaVersion: 3, recordType: 'CAPA', failureMode: storedCode } : undefined;
+  requestJira.mockResolvedValueOnce(response(200, { properties: { qualityloop: stored } }))
+    .mockResolvedValueOnce(response(204));
+  const result = await handler.saveCapture({ context, payload: { ...payload, recordType: 'CAPA', failureMode: selectedCode,
+    closedDate: '2026-10-01', rootCause: 'Updated root cause only' } });
+  if (succeeds) {
+    expect(result.record).toMatchObject({ failureMode: selectedCode.trim().toUpperCase(), rootCause: 'Updated root cause only' });
+    expect(requestJira.mock.calls[1][1].method).toBe('PUT');
+    expect(api.asUser).toHaveBeenCalledTimes(2);
+  } else {
+    expect(result).toHaveProperty('fieldErrors.failureMode');
+    expect(requestJira).toHaveBeenCalledTimes(1);
+  }
+});
+
+test('a payload cannot supply the stored failure-mode exception', async () => {
+  expect(await handler.saveCapture({ context, payload: { ...payload, storedFailureMode: 'FM-08' } })).toHaveProperty('error');
+  expect(requestJira).not.toHaveBeenCalled();
 });
 
 test('deactivated schema-v3 records still load, and KVS failure/corruption never silently uses the seed', async () => {

@@ -19,6 +19,14 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
+test.each([
+  [[{ code: 'FM-08', label: 'Wire fracture', active: false }], 'FM-08 Wire fracture (inactive)'],
+  [[], 'FM-08 (not in catalogue)'],
+])('hints preserve inactive labels and distinguish missing catalogue entries', (failureModes, label) => {
+  const tree = nodes(HintResults({ result: { ...result, hints: [{ ...result.hints[0], failureMode: 'FM-08' }] }, failureModes }));
+  expect(tree).toContain(`Failure mode: ${label}`);
+});
+
 test('nonempty hints start expanded and a button can collapse the separate section', () => {
   const setExpanded = jest.fn();
   React.useState.mockReturnValue([true, setExpanded]);

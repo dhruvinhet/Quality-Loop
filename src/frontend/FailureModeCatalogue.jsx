@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Form, Heading, Label, SectionMessage, Stack, Text, Textfield } from '@forge/react';
+import { Button, ButtonGroup, Form, Heading, Inline, Label, Lozenge, SectionMessage, Stack, Text, Textfield } from '@forge/react';
 import { invoke } from '@forge/bridge';
+import { sortFailureModes } from '../lib/failureModes';
 
 export default function FailureModeCatalogue() {
   const [catalogue, setCatalogue] = useState(null);
@@ -47,13 +48,17 @@ export default function FailureModeCatalogue() {
     {busy && <Text>Loading or saving failure modes. Please wait.</Text>}
     {message && <SectionMessage appearance={message.appearance}><Text>{message.text}</Text></SectionMessage>}
     {catalogue && <>
-      {catalogue.modes.map((mode) => <Stack key={mode.code} space="space.100">
-        <Text>{`${mode.code} ${mode.label} (${mode.active ? 'active' : 'inactive'})`}</Text>
-        <Button isDisabled={busy} onClick={() => edit('rename', mode)}>{`Rename ${mode.code} label`}</Button>
-        <Button isDisabled={busy} onClick={() => change(mode.active ? 'deactivate' : 'activate', mode.code)}>
-          {`${mode.active ? 'Deactivate' : 'Activate'} ${mode.code}`}
-        </Button>
-      </Stack>)}
+      {sortFailureModes(catalogue.modes).map((mode) => <Inline key={mode.code} space="space.100" alignBlock="center" shouldWrap>
+        <Text>{mode.code}</Text>
+        <Text>{mode.label}</Text>
+        <Lozenge appearance={mode.active ? 'success' : 'default'}>{mode.active ? 'Active' : 'Inactive'}</Lozenge>
+        <ButtonGroup label={`Actions for ${mode.code}`}>
+          <Button spacing="compact" appearance="subtle" isDisabled={busy} onClick={() => edit('rename', mode)}>Rename</Button>
+          <Button spacing="compact" appearance="subtle" isDisabled={busy} onClick={() => change(mode.active ? 'deactivate' : 'activate', mode.code)}>
+            {mode.active ? 'Deactivate' : 'Activate'}
+          </Button>
+        </ButtonGroup>
+      </Inline>)}
       <Button isDisabled={busy || catalogue.modes.length >= 50} onClick={() => edit('add')}>Add failure mode</Button>
     </>}
     {editing && <Form key={`${editing.action}:${editing.code}`} onSubmit={() => change(editing.action, code.current, label.current)}>

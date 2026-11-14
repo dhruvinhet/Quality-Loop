@@ -41,19 +41,31 @@ test('current distinct-NC count and capped history are labelled explicitly', () 
 const card = { id: '2', key: 'QL-2', partOriginal: 'T24-6604 -A', partNorm: 'T24-6604-A',
   failureMode: 'FM-01', rootCause: '', actionsTaken: '', supportingFacts: [], closedDate: '2026-10-01', statusCategory: 'done' };
 
-test('cards resolve current custom labels and fall back to stable codes for deactivated or unknown modes', () => {
+test.each([
+  [[{ code: 'FM-08', label: 'Wire fracture', active: false }], 'FM-08 Wire fracture (inactive)'],
+  [[], 'FM-08 (not in catalogue)'],
+  [null, 'FM-08'],
+])('read-only details and cards use the same inactive/absent label', (failureModes, label) => {
+  const ReadOnlyCapture = require('../ReadOnlyCapture').default;
+  expect(nodes(ReadOnlyCapture({ record: { failureMode: 'FM-08' }, failureModes }))).toContain(`Failure mode: ${label}`);
+  const tree = nodes(EvidenceCard({ match: { ...card, failureMode: 'FM-08' }, classification: 'strong', failureModes }));
+  expect(tree.find((node) => typeof node === 'string' && node.startsWith('Exact signature:'))).toContain(`failure mode ${label}`);
+});
+
+test('cards retain the custom label and mark inactive modes', () => {
   for (const active of [true, false]) {
     const tree = nodes(EvidenceCard({ match: { ...card, failureMode: 'FM-08' }, classification: 'strong',
       failureModes: [{ code: 'FM-08', label: 'Wire fracture', active }] }));
     const signature = tree.find((node) => typeof node === 'string' && node.startsWith('Exact signature:'));
     expect(signature).toContain('failure mode FM-08');
-    expect(signature.includes('Wire fracture')).toBe(active);
+    expect(signature).toContain('Wire fracture');
+    expect(signature.includes('(inactive)')).toBe(!active);
   }
 });
 
-test('supplier-index limitations are disclosed without hidden-record counts', () => {
+test('the NC panel does not render the always-on supplier migration banner', () => {
   const tree = nodes(EvidenceResults({ result: { applicable: true, strong: [], relatedRevision: [], otherRelated: [], supplierIndexLimited: true } }));
-  expect(tree).toContain('Supplier-based related searches cover only CAPAs saved with normalised supplier details. Older records may be missed until re-saved.');
+  expect(tree).not.toContain('Supplier-based related searches cover only CAPAs saved with normalised supplier details. Older records may be missed until re-saved.');
 });
 
 test.each(['strong', 'relatedRevision'])('%s card explains the normalised part while preserving the original', (classification) => {

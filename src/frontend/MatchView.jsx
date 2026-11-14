@@ -15,7 +15,7 @@ export default function MatchView({ refresh = 0, readOnly = false, canEdit = !re
       .catch(() => ({ error: 'Hints could not be loaded. Refresh evidence to try again.' })),
     invoke('getFailureModes').catch(() => null)]).then(([result, hints, catalogue]) => {
       if (active) setState({ result, hints, error: result?.error || (!result ? 'Evidence is unavailable with your current issue access.' : null), pairs: result?.pairs,
-        failureModes: catalogue?.modes ?? [], catalogueError: !catalogue?.modes,
+        failureModes: catalogue?.modes ?? null, catalogueError: !catalogue?.modes,
         decisionsError: result?.decisionsIncomplete ? 'Decision history and counts are incomplete. Refresh to try again.'
           : (!result?.pairs ? 'Decision history could not be loaded.' : null) });
     }).catch(() => {

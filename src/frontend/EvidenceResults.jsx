@@ -54,7 +54,6 @@ export default function EvidenceResults({ result, readOnly = false, canEdit = !r
   const { strong, relatedRevision, otherRelated } = result;
   return <Stack space="space.200">
     <EvidenceHeading />
-    {result.supplierIndexLimited && <SectionMessage appearance="information"><Text>Supplier-based related searches cover only CAPAs saved with normalised supplier details. Older records may be missed until re-saved.</Text></SectionMessage>}
     {result.matchesIncomplete && <SectionMessage appearance="warning"><Text>Signature search is incomplete: checked up to 200 candidates. More closed CAPAs may match.</Text></SectionMessage>}
     {result.otherRelatedIncomplete && <SectionMessage appearance="warning"><Text>Other related search is limited to 20 candidates per query. More related records may exist.</Text></SectionMessage>}
     {result.incomplete && <SectionMessage appearance="warning"><Text>The loading time budget was reached or some evidence is incomplete. Only completed results are shown. Refresh to try again.</Text></SectionMessage>}

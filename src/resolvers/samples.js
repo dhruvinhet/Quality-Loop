@@ -3,6 +3,7 @@ import Resolver from '@forge/resolver';
 import { route } from '@forge/api';
 import { kvs } from '@forge/kvs';
 import { removableSample, SAMPLE_LABEL, sampleCreationLines, sampleDefinitions, selectSampleIssueType } from '../lib/sampleScenario';
+import { readFailureModes } from './failureModes';
 import { RECORD_ENTITIES, recordsForIssues } from '../lib/cleanup';
 import { deleteRecordBatch, recordPage } from './cleanupStore';
 import { pageDefine, projectContext, readTicket, saveTicket, userJira, validCursor } from './pageUtils';
@@ -68,11 +69,12 @@ pageDefine(resolver, 'prepareSample', [], async (context) => {
     item.inward?.toLowerCase() === 'relates to' && item.outward?.toLowerCase() === 'relates to');
   if (!link) return { error: 'Enable the relates to issue link type before creating the sample.' };
   const definitions = sampleDefinitions();
+  const catalogue = await readFailureModes();
   const plan = { projectId: project.id, issueTypeId: type.id, linkTypeId: link.id, definitions };
   return { token: await saveTicket('sample-plan', context, plan),
     lines: [`Create exactly five issues in ${project.key}, using issue type ${type.name}, each labelled ${SAMPLE_LABEL}.`,
       'All sample part numbers, suppliers and lines use the DEMO- prefix to keep matches separate from non-DEMO data.',
-      ...sampleCreationLines(definitions),
+      ...sampleCreationLines(definitions, catalogue.modes),
       'Link DEMO historical NC to DEMO CAPA-A using relates to.',
       'For each of the three sample CAPAs, attempt an available transition to a Done-category status. Leave its Jira status unchanged if no transition is available or Jira refuses it. Do not change workflows.',
       'Save the created issue IDs and your account ID in Forge hosted storage. The CAPA-A evidence URL is illustrative sample data.'] };

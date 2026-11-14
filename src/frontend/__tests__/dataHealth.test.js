@@ -20,6 +20,13 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
+test('supplier migration guidance appears under App data maintenance', () => {
+  const tree = render();
+  const note = 'Supplier-based searches may miss older CAPAs until their quality details are re-saved.';
+  expect(tree).toContain(note);
+  expect(tree.indexOf(note)).toBeGreaterThan(tree.indexOf('App data maintenance'));
+});
+
 test('orphan check shows count, cancellation writes nothing, and removal requires the count dialog', async () => {
   invoke.mockResolvedValueOnce({ token: 'ticket' }).mockResolvedValueOnce({ scanned: 5, found: 3, unknown: 1, scanComplete: true, removed: 0 });
   await click(render(), 'Check for orphaned records');

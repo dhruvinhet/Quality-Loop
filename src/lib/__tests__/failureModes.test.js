@@ -1,5 +1,5 @@
 const { FAILURE_MODES } = require('../../config/failureModes');
-const { seedCatalogue, validCatalogue, changeCatalogue, modeOptions, failureModeLabel } = require('../failureModes');
+const { seedCatalogue, validCatalogue, changeCatalogue, modeOptions, failureModeLabel, sortFailureModes } = require('../failureModes');
 const { buildCapture, validateCapture } = require('../capture');
 const { matchCaptures } = require('../match');
 
@@ -23,7 +23,7 @@ test('deactivation retains codes; active options and validation exclude them', (
   const original = seedCatalogue();
   const changed = changeCatalogue(original, { action: 'deactivate', code: 'FM-01' });
   expect(changed.modes).toHaveLength(original.modes.length);
-  expect(failureModeLabel('FM-01', changed.modes)).toBe('FM-01');
+  expect(failureModeLabel('FM-01', changed.modes)).toBe('FM-01 Crack (inactive)');
   expect(modeOptions(changed.modes).some(({ value }) => value === 'FM-01')).toBe(false);
   expect(validateCapture({ recordType: 'NC', partNumber: 'P-1', failureMode: 'FM-01', detectedDate: '2026-11-13' }, changed.modes))
     .toHaveProperty('failureMode');
@@ -31,6 +31,22 @@ test('deactivation retains codes; active options and validation exclude them', (
   expect(() => changeCatalogue(changed, { action: 'delete', code: 'FM-01' })).toThrow(/cannot be deleted/);
   expect(original.modes[0].active).toBe(true);
   expect(changeCatalogue(changed, { action: 'activate', code: 'FM-01' }).modes[0].active).toBe(true);
+});
+
+test('labels distinguish inactive from absent codes and options include only the stored inactive code', () => {
+  const modes = [{ code: 'FM-09', label: 'Old defect', active: false },
+    { code: 'FM-10', label: 'Crack', active: true }, { code: 'FM-08', label: 'Wire fracture', active: false }];
+  const before = JSON.stringify(modes);
+  expect(failureModeLabel('fm-08', modes)).toBe('FM-08 Wire fracture (inactive)');
+  expect(failureModeLabel('FM-77', modes)).toBe('FM-77 (not in catalogue)');
+  expect(failureModeLabel('FM-08', null)).toBe('FM-08');
+  expect(modeOptions(modes, ' fm-08 ')).toEqual([
+    { value: 'FM-08', label: 'FM-08 Wire fracture (inactive)' }, { value: 'FM-10', label: 'FM-10 Crack' },
+  ]);
+  expect(modeOptions(modes)).toEqual([{ value: 'FM-10', label: 'FM-10 Crack' }]);
+  expect(modeOptions(modes, 'FM-77')).toContainEqual({ value: 'FM-77', label: 'FM-77 (not in catalogue)' });
+  expect(sortFailureModes(modes).map((m) => m.code)).toEqual(['FM-08', 'FM-09', 'FM-10']);
+  expect(JSON.stringify(modes)).toBe(before);
 });
 test('rename changes only the label and revision, not codes or active state', () => {
   const catalogue = seedCatalogue();

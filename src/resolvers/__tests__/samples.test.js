@@ -38,6 +38,17 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 const req = (payload = {}) => ({ context, payload });
 
+test('sample confirmation resolves labels from the site catalogue, including inactive labels', async () => {
+  storage.set('fm-catalog:site', { version: 1, modes: [{ code: 'FM-07', label: 'Handling damage', active: false }] });
+  requestJira.mockResolvedValueOnce(response(200, project))
+    .mockResolvedValueOnce(response(200, { issueTypes: [{ id: '5', name: 'Task', subtask: false }], total: 1 }))
+    .mockResolvedValueOnce(response(200, { issueLinkTypes: [{ id: '2', inward: 'relates to', outward: 'relates to' }] }));
+  const plan = await handler.prepareSample(req());
+  expect(plan.lines.join('\n')).toContain('FM-07 Handling damage (inactive)');
+  expect(plan.lines.join('\n')).toContain('FM-01 (not in catalogue)');
+  expect(requestJira.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+});
+
 test.each(Object.keys(handler))('%s rejects payload issue identifiers before Jira access', async (name) => {
   expect(await handler[name](req({ issueId: '99999' }))).toHaveProperty('error');
   expect(requestJira).not.toHaveBeenCalled();
